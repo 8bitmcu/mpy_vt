@@ -1,15 +1,44 @@
+#include "mpfile.h"
 #include "py/mphal.h"
 #include "py/objstr.h"
 #include "py/runtime.h"
 #include "py/stream.h"
+#include "st_term.h"
+
+#include "mpfile.h"
+#include "py/mphal.h"
+#include "py/runtime.h"
+#include "st7789.h"
 
 // Object Structure ---
-typedef struct _term_Terminal_obj_t {
-  mp_obj_base_t base;
-} term_Terminal_obj_t;
+
+extern const mp_obj_type_t st7789_ST7789_type;
+term_Terminal_obj_t *current_term_obj = NULL;
 
 // Forward declaration
 const mp_obj_type_t term_Terminal_type;
+
+static mp_obj_t term_terminal_print_grid(mp_obj_t self_in) {
+  // Loop through every row
+  for (int y = 0; y < term.row; y++) {
+    // Loop through every column
+    for (int x = 0; x < term.col; x++) {
+      // st stores characters as 'Rune' (uint32_t)
+      uint32_t u = term.line[y][x].u;
+
+      // If the cell is empty (0), print a dot or space
+      if (u == 0 || u == ' ') {
+        printf(".");
+      } else {
+        printf("%c", (char)u);
+      }
+    }
+    printf("\n"); // End of row
+  }
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(term_terminal_print_grid_obj,
+                                 term_terminal_print_grid);
 
 // Stream Protocol Implementation ---
 
@@ -36,15 +65,17 @@ static mp_uint_t term_write(mp_obj_t self_in, const void *buf, mp_uint_t size,
 }
 
 static mp_obj_t term_Terminal_write(mp_obj_t self_in, mp_obj_t arg) {
-  mp_buffer_info_t bufinfo;
-  // This helper handles both 'bytes' and 'str' types automatically
-  if (mp_get_buffer(arg, &bufinfo, MP_BUFFER_READ)) {
-    int err;
-    term_write(self_in, bufinfo.buf, bufinfo.len, &err);
-    return mp_obj_new_int_from_uint(bufinfo.len);
-  } else {
-    mp_raise_TypeError(MP_ERROR_TEXT("string or bytes required"));
+  size_t len;
+  const char *data = mp_obj_str_get_data(arg, &len);
+
+  for (size_t i = 0; i < len; i++) {
+    // tputc is the heart of st_term.c
+    // It parses the byte and updates the internal grid
+    tputc((uchar)data[i]);
   }
+
+  draw();
+  return mp_const_none;
 }
 
 // Define the MicroPython function object
@@ -81,19 +112,33 @@ static const mp_stream_p_t term_stream_p = {
 // Constructor: term.Terminal()
 static mp_obj_t term_Terminal_make_new(const mp_obj_type_t *type, size_t n_args,
                                        size_t n_kw, const mp_obj_t *args) {
-  mp_arg_check_num(n_args, n_kw, 0, 0, false);
+  mp_arg_check_num(n_args, n_kw, 2, 2, false);
+
   term_Terminal_obj_t *self = m_new_obj(term_Terminal_obj_t);
   self->base.type = &term_Terminal_type;
+
+  if (!mp_obj_is_type(args[0], &st7789_ST7789_type)) {
+    mp_raise_TypeError(MP_ERROR_TEXT("Arg 1 must be ST7789 object"));
+  }
+  self->display_drv = (st7789_ST7789_obj_t *)MP_OBJ_TO_PTR(args[0]);
+
+  self->font_obj = (mp_obj_module_t *)MP_OBJ_TO_PTR(args[1]);
+
+  tnew(40, 16);
+  current_term_obj = self;
+
   return MP_OBJ_FROM_PTR(self);
 }
 
 // Locals Dict (Methods attached to the object)
 // Even if empty, it's good practice to define it to avoid segfaults on dir(obj)
-static const mp_rom_map_elem_t term_Terminal_locals_dict_table[] = {
+static const mp_rom_map_elem_t terminal_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&term_Terminal_write_obj)},
+    {MP_ROM_QSTR(MP_QSTR_print_grid),
+     MP_ROM_PTR(&term_terminal_print_grid_obj)},
 };
 static MP_DEFINE_CONST_DICT(term_Terminal_locals_dict,
-                            term_Terminal_locals_dict_table);
+                            terminal_locals_dict_table);
 
 // Type Definition
 MP_DEFINE_CONST_OBJ_TYPE(term_Terminal_type, MP_QSTR_Terminal,
@@ -107,6 +152,7 @@ static const mp_rom_map_elem_t term_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_term)},
     {MP_ROM_QSTR(MP_QSTR_Terminal), MP_ROM_PTR(&term_Terminal_type)},
 };
+
 static MP_DEFINE_CONST_DICT(term_module_globals, term_module_globals_table);
 
 const mp_obj_module_t term_module = {

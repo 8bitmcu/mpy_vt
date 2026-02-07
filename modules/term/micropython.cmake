@@ -1,15 +1,17 @@
-# Create an INTERFACE library for our C module.
+# Define the module and its source files
 add_library(usermod_term INTERFACE)
 
-# Add our source files to the lib
 target_sources(usermod_term INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}/examplemodule.c
+    ${CMAKE_CURRENT_LIST_DIR}/st_term.c
+    ${CMAKE_CURRENT_LIST_DIR}/stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/term_module.c
 )
 
-# Add the current directory as an include directory.
+# Add the include directory so headers are found
 target_include_directories(usermod_term INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}
+		${CMAKE_CURRENT_LIST_DIR}/../st7789
 )
 
-# Link our INTERFACE library to the usermod target.
+# Link it to the usermod target
 target_link_libraries(usermod INTERFACE usermod_term)
