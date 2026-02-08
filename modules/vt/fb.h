@@ -1,3 +1,11 @@
+/*
+ * MicroPython ANSI Terminal Wrapper
+ * Copyright (c) 2026 8bitmcu
+ * * Based on the st (Suckless Terminal) engine.
+ * Original code (c) st engineers.
+ * License: MIT
+ */
+
 #ifndef STUB_H
 #define STUB_H
 
@@ -8,7 +16,8 @@
 typedef struct _vt_VT_obj_t {
   mp_obj_base_t base;
   st7789_ST7789_obj_t *display_drv;
-  mp_obj_module_t *font_obj;
+  mp_obj_module_t *font_regular;
+  mp_obj_module_t *font_bold;
 } vt_VT_obj_t;
 
 extern vt_VT_obj_t *current_vt_obj;

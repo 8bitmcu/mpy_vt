@@ -1,3 +1,11 @@
+/*
+ * MicroPython ANSI Terminal Wrapper
+ * Copyright (c) 2026 8bitmcu
+ * * Based on the st (Suckless Terminal) engine.
+ * Original code (c) st engineers.
+ * License: MIT
+ */
+
 #include "py/mphal.h"
 #include "py/objstr.h"
 #include "py/runtime.h"
@@ -6,7 +14,7 @@
 #include "mpfile.h"
 #include "st.h"
 #include "st7789.h"
-#include "stub.h"
+#include "fb.h"
 
 // Object Structure ---
 
@@ -86,7 +94,7 @@ static const mp_stream_p_t vt_stream_p = {
 // Constructor: vt.VT()
 static mp_obj_t vt_VT_make_new(const mp_obj_type_t *type, size_t n_args,
                                size_t n_kw, const mp_obj_t *args) {
-  mp_arg_check_num(n_args, n_kw, 4, 4, false);
+  mp_arg_check_num(n_args, n_kw, 4, 5, false);
 
   vt_VT_obj_t *self = m_new_obj(vt_VT_obj_t);
   self->base.type = &vt_VT_type;
@@ -95,10 +103,16 @@ static mp_obj_t vt_VT_make_new(const mp_obj_type_t *type, size_t n_args,
     mp_raise_TypeError(MP_ERROR_TEXT("Arg 1 must be ST7789 object"));
   }
   self->display_drv = (st7789_ST7789_obj_t *)MP_OBJ_TO_PTR(args[0]);
-  self->font_obj = (mp_obj_module_t *)MP_OBJ_TO_PTR(args[1]);
 
-  int cols = mp_obj_get_int(args[2]);
-  int rows = mp_obj_get_int(args[3]);
+  int cols = mp_obj_get_int(args[1]);
+  int rows = mp_obj_get_int(args[2]);
+
+  self->font_regular = (mp_obj_module_t *)MP_OBJ_TO_PTR(args[3]);
+  if (n_args > 4) {
+    self->font_bold = (mp_obj_module_t *)MP_OBJ_TO_PTR(args[4]);
+  } else {
+    self->font_bold = self->font_regular;
+  }
 
   tnew(cols, rows);
 

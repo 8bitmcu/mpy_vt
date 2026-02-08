@@ -1,8 +1,7 @@
+/* See LICENSE for license details. */
 
 #ifndef ST_TERM_H
 #define ST_TERM_H
-
-/* See LICENSE for license details. */
 
 #include <stddef.h>
 #include <stdint.h>

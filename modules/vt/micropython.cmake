@@ -3,7 +3,7 @@ add_library(usermod_term INTERFACE)
 
 target_sources(usermod_term INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/st.c
-    ${CMAKE_CURRENT_LIST_DIR}/stub.c
+    ${CMAKE_CURRENT_LIST_DIR}/fb.c
     ${CMAKE_CURRENT_LIST_DIR}/vt_module.c
 )
 
