@@ -11,8 +11,6 @@
 #include "win.h"
 #include <stdint.h>
 
-#define _swap_bytes(val) ((((val) >> 8) & 0x00FF) | (((val) << 8) & 0xFF00))
-
 int pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
             const struct timespec *timeout, const sigset_t *sigmask) {
   // We ignore the sigmask and convert timespec to timeval
@@ -21,50 +19,44 @@ int pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   return select(nfds, readfds, writefds, exceptfds, &tv);
 }
 
-uint16_t map_st_color(int color_idx) {
-  switch (color_idx) {
-  case 0:
-    return 0x0000; // Black
-  case 1:
-    return 0x8000; // Red (Dim)
-  case 2:
-    return 0x0400; // Green (Dim)
-  case 3:
-    return 0x8400; // Yellow (Dim)
-  case 4:
-    return 0x0010; // Blue (Dim)
-  case 5:
-    return 0x8010; // Magenta (Dim)
-  case 6:
-    return 0x0410; // Cyan (Dim)
-  case 7:
-    return 0xBDF7; // Light Gray
-  case 8:
-    return 0x8410; // Gray (Bright Black)
-  case 9:
-    return 0xF800; // Bright Red
-  case 10:
-    return 0x07E0; // Bright Green
-  case 11:
-    return 0xFFE0; // Bright Yellow
-  case 12:
-    return 0x001F; // Bright Blue
-  case 13:
-    return 0xF81F; // Bright Magenta
-  case 14:
-    return 0x07FF; // Bright Cyan
-  case 15:
-    return 0xFFFF; // White (Bright Gray)
+uint16_t map_st_color(int number) {
+  uint16_t r565;
 
-  // --- Default Fallbacks ---
-  case 256:
-    return 0x0000; // Default BG
-  case 257:
-    return 0xFFFF; // Default FG
-
-  default:
-    return 0xFFFF; // Fallback to White
+  // 1. Standard/Bright (0-15)
+  if (number < 16) {
+    static const uint16_t ansi_16[16] = {
+        0x0000, 0x8000, 0x0400, 0x8400, 0x0010, 0x8010, 0x0410, 0xBDF7,
+        0x8410, 0xF800, 0x07E0, 0xFFE0, 0x001F, 0xF81F, 0x07FF, 0xFFFF};
+    r565 = ansi_16[number];
   }
+  // 2. Color Cube (16-231)
+  else if (number <= 231) {
+    int idx = number - 16;
+    static const uint8_t levels[] = {0, 95, 135, 175, 215, 255};
+
+    uint8_t r = levels[(idx / 36) % 6];
+    uint8_t g = levels[(idx / 6) % 6];
+    uint8_t b = levels[idx % 6];
+
+    r565 = ((uint16_t)(r >> 3) << 11) | ((uint16_t)(g >> 2) << 5) |
+           (uint16_t)(b >> 3);
+  }
+  // 3. Grayscale (232-255)
+  else if (number <= 255) {
+    uint8_t g_val = (number - 232) * 10 + 8;
+    r565 = ((uint16_t)(g_val >> 3) << 11) | ((uint16_t)(g_val >> 2) << 5) |
+           (uint16_t)(g_val >> 3);
+  } else {
+    if (number == 256)
+      r565 = 0x0000; // BG
+    else if (number == 257)
+      r565 = 0xFFFF; // FG
+    else
+      r565 = 0xFFFF;
+  }
+
+  // FINAL STEP: Perform the byte swap here so the loop doesn't have to
+  return (uint16_t)((r565 >> 8) | (r565 << 8));
 }
 
 void xdrawline(Line ln, int _x1, int _y1, int _x2) {
@@ -117,8 +109,8 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
         int col_idx = _x1 + i;
 
         // Color & Invert
-        uint16_t fg = _swap_bytes(map_st_color(ln[col_idx].fg));
-        uint16_t bg = _swap_bytes(map_st_color(ln[col_idx].bg));
+        uint16_t fg = map_st_color(ln[col_idx].fg);
+        uint16_t bg = map_st_color(ln[col_idx].bg);
         if (ln[col_idx].mode & ATTR_REVERSE) {
           fg_cache[i] = bg;
           bg_cache[i] = fg;
