@@ -85,5 +85,9 @@ refresh_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=refresh_loop
 
 This project is licensed under the **MIT License**.
 
-This work incorporates code from the [st (Suckless Terminal)](https://st.suckless.org/) project.
+### Third-Party Components:
 * **st License:** MIT (c) st engineers.
+* **st7789_mpy:** (c) Russ Hughes. [MIT License]
+
+### Fonts & Assets:
+* **Terminus Font:** (c) 2020 Dimitar Zhekov. Licensed under the [SIL Open Font License 1.1](https://scripts.sil.org/OFL).

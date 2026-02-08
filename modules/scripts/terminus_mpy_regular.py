@@ -2,6 +2,8 @@
 # Converted from fonts/TerminusTTF-4.49.3.ttf using:
 # unicode2textfont.py fonts/TerminusTTF-4.49.3.ttf 14 -c 0x00-0xFF
 
+# Copyright (c) 2020 Dimitar Zhekov
+
 HEIGHT = 14
 WIDTH = 8
 FIRST = 0x0

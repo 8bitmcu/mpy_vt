@@ -1,7 +1,6 @@
-import st7789
 import tft_config
-import terminus_8x14r
-import terminus_8x14b
+import terminus_mpy_regular as rfont
+import terminus_mpy_bold as bfont
 import vt
 import os
 import machine
@@ -13,10 +12,10 @@ tft = tft_config.config(rotation=1, buffer_size=14*320*2)
 tft.init()
 
 
-rows = 240 // terminus_8x14r.HEIGHT
-cols = 320 // terminus_8x14r.WIDTH
+rows = 240 // rfont.HEIGHT
+cols = 320 // rfont.WIDTH
 
-t = vt.VT(tft, cols, rows, terminus_8x14r, terminus_8x14b)
+t = vt.VT(tft, cols, rows, rfont, bfont)
 
 
 os.dupterm(t)
