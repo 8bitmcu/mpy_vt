@@ -2,6 +2,8 @@
 
 This project implements a high-performance, attribute-aware terminal emulator for MicroPython. By wrapping the [st](https://st.suckless.org/) (suckless terminal) engine in a custom C module, it achieves desktop-class terminal features on embedded hardware.
 
+![animation](screen.gif)
+
 ## 🚀 Features
 
 ### **Core Terminal Capabilities**
