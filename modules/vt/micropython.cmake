@@ -2,9 +2,9 @@
 add_library(usermod_term INTERFACE)
 
 target_sources(usermod_term INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}/st_term.c
+    ${CMAKE_CURRENT_LIST_DIR}/st.c
     ${CMAKE_CURRENT_LIST_DIR}/stub.c
-    ${CMAKE_CURRENT_LIST_DIR}/term_module.c
+    ${CMAKE_CURRENT_LIST_DIR}/vt_module.c
 )
 
 # Add the include directory so headers are found

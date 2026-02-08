@@ -14,14 +14,6 @@
 #include "mpfile.h"
 #include "st7789.h"
 
-typedef struct _term_Terminal_obj_t {
-  mp_obj_base_t base;
-  st7789_ST7789_obj_t *display_drv;
-  mp_obj_module_t *font_obj;
-} term_Terminal_obj_t;
-
-extern term_Terminal_obj_t *current_term_obj;
-
 /* macros */
 #define SMIN(a, b) ((a) < (b) ? (a) : (b))
 #define SMAX(a, b) ((a) < (b) ? (b) : (a))

@@ -1,9 +1,17 @@
 #ifndef STUB_H
 #define STUB_H
 
+#include "st.h" /* To get the Glyph and Rune types */
+#include "win.h"     /* To ensure we match original X11 signatures */
 #include <stdint.h>
-#include "st_term.h"    /* To get the Glyph and Rune types */
-#include "win.h"   /* To ensure we match original X11 signatures */
+
+typedef struct _vt_VT_obj_t {
+  mp_obj_base_t base;
+  st7789_ST7789_obj_t *display_drv;
+  mp_obj_module_t *font_obj;
+} vt_VT_obj_t;
+
+extern vt_VT_obj_t *current_vt_obj;
 
 /* Window/UI operations */
 void xsettitle(char *p);
@@ -12,7 +20,7 @@ void xsetsel(char *p);
 void xclipcopy(void);
 
 /* Configuration/Settings */
-extern int allowwindowops; 
+extern int allowwindowops;
 
 /* Color and Graphics */
 int xsetcolorname(int n, const char *s);
@@ -33,6 +41,5 @@ extern int allowaltscreen;
 extern char *vtiden;
 extern wchar_t *worddelimiters;
 extern unsigned int defaultcs;
-
 
 #endif /* STUB_H */

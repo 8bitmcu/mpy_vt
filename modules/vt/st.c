@@ -17,7 +17,7 @@
 #include <unistd.h>
 #include <wchar.h>
 
-#include "st_term.h"
+#include "st.h"
 #include "win.h"
 
 static void ttywriteraw(const char *, size_t);
