@@ -9,8 +9,8 @@
 #ifndef STUB_H
 #define STUB_H
 
-#include "st.h" /* To get the Glyph and Rune types */
-#include "win.h"     /* To ensure we match original X11 signatures */
+#include "st.h"  /* To get the Glyph and Rune types */
+#include "win.h" /* To ensure we match original X11 signatures */
 #include <stdint.h>
 
 typedef struct _vt_VT_obj_t {
@@ -19,6 +19,13 @@ typedef struct _vt_VT_obj_t {
   mp_obj_module_t *font_regular;
   mp_obj_module_t *font_bold;
 } vt_VT_obj_t;
+
+// Allocate a persistent line for the status bar
+static Glyph top_line_now[256];
+static Glyph top_line_last[256];
+
+static Glyph bot_line_now[256];  // Buffer for bottom bar
+static Glyph bot_line_last[256]; // Back-buffer for bottom bar
 
 extern vt_VT_obj_t *current_vt_obj;
 
@@ -50,5 +57,7 @@ extern int allowaltscreen;
 extern char *vtiden;
 extern wchar_t *worddelimiters;
 extern unsigned int defaultcs;
+
+void draw_bar_ansi(const char *text, size_t len, int bar_type);
 
 #endif /* STUB_H */

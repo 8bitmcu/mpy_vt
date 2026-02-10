@@ -105,6 +105,12 @@ refresh_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=refresh_loop
 | **`write()`** | `data` | Feeds ANSI strings or raw bytes into the parser. Updates internal state and marks lines as "dirty." |
 | **`draw()`** | *None* | Triggers the render pass. Iterates through dirty lines and pushes pixel data to the `st7789` hardware. |
 | **`ioctl()`** | `cmd, arg` | Internal stream protocol implementation for `os.dupterm` compatibility. |
+| **`top_offset(px)`** | `px` (int) | Sets the vertical starting point of the terminal in pixels. Allows reserving space for a top status bar. |
+| **`top_bar(text)`** | `text` | Parses ANSI and renders at the very top of the display. |
+| **`bottom_bar(text)`** | `text` | Parses ANSI and renders at the very last row of the display. |
+| **`top_bar_invalidate()`** | *None | Forces the top bar to redraw on the next update call. |
+| **`bottom_bar_invalidate()`** | *None | Forces the bottom bar to redraw on the next update call. |
+
 
 ### **2. `tdeck_kbd.Keyboard` (Input Driver)**
 *The hardware interface for the T-Deck's I2C-based keyboard and trackball.*

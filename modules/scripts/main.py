@@ -1,6 +1,7 @@
 import terminus_mpy_regular as rfont
 import terminus_mpy_bold as bfont
 import machine
+import micropython
 import vt
 import tdeck_kbd
 import tdeck_kv
@@ -12,14 +13,19 @@ import telnet
 from secrets import secrets
 import st7789
 import time
+import status
 
 # Screen dimensions in pixel
 screen_width = 320
 screen_height = 240
 
-# How many characters can we fit on the screen
-rows = screen_height // rfont.HEIGHT
+# Reserve 1 row for a topbar
+status_height = rfont.HEIGHT
+
+# How many characters can we fit on the screen?
 cols = screen_width // rfont.WIDTH
+usable_height = screen_height - status_height
+rows = usable_height // rfont.HEIGHT
 
 # Must be called before initializing LCD / Keyboard
 pwr_en = machine.Pin(10, machine.Pin.OUT)
@@ -41,6 +47,7 @@ tft.init()
 
 # Initialize ST engine
 term = vt.VT(tft, cols, rows, rfont, bfont)
+term.top_offset(status_height)
 
 # Initialize keyboard
 kbd = tdeck_kbd.Keyboard(sda=18, scl=8)
@@ -51,13 +58,30 @@ kv = tdeck_kv.KV(term , kbd)
 # Redirect to REPL
 os.dupterm(kv)
 
-# Update LCD periodically
-def refresh_loop(timer):
-    term.draw()
+# status bar component
+sts = status.StatusBar(term, width=cols)
+sts.refresh()
 
 # 30ms = ~33 FPS.
-refresh_timer = machine.Timer(0)
-refresh_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=refresh_loop)
+# Define the two timers
+draw_timer = machine.Timer(0)
+logic_timer = machine.Timer(1)
+
+# 1. The FAST loop (30ms) - Only for rendering pixels
+def fast_loop(t):
+    # Use schedule to keep the ISR (Interrupt Service Routine) light
+    micropython.schedule(lambda _: term.draw(), 0)
+
+# 2. The SLOW loop (1000ms) - Only for calculating stats
+def slow_loop(t):
+    # Update the status bar string (ANSI parsing happens here)
+    micropython.schedule(lambda _: sts.refresh(), 0)
+
+# Initialize them
+draw_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=fast_loop)
+logic_timer.init(period=1000, mode=machine.Timer.PERIODIC, callback=slow_loop)
+
+
 
 
 # Choose your cursor:
@@ -70,8 +94,6 @@ sys.stdout.write("\x1b[ 6 q")
 
 # Block Cursor
 #sys.stdout.write("\x1b[ 2 q")
-
-
 
 
 

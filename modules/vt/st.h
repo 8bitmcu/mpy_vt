@@ -228,6 +228,7 @@ typedef struct {
   int *tabs;
   Rune lastc; /* last printed char outside of sequence, 0 if control */
   int cursor_style;
+  int top_offset;
 } Term;
 
 /* CSI Escape sequence structs */

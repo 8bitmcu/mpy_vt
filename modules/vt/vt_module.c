@@ -69,6 +69,56 @@ static mp_obj_t vt_VT_draw(mp_obj_t self_in) {
 }
 MP_DEFINE_CONST_FUN_OBJ_1(vt_VT_draw_obj, vt_VT_draw);
 
+static mp_obj_t vt_vt_top_offset(mp_obj_t self_in, mp_obj_t offset_obj) {
+  vt_VT_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  int offset = mp_obj_get_int(offset_obj);
+
+  // Update the offset in the terminal engine
+  term.top_offset = offset;
+
+  // Mark lines dirty so they move to the new position on next draw()
+  for (int i = 0; i < term.row; i++) {
+    term.dirty[i] = 1;
+  }
+
+  return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(vt_vt_top_offset_obj, vt_vt_top_offset);
+
+// Top Bar Bridge
+static mp_obj_t vt_vt_top_bar(mp_obj_t self_in, mp_obj_t str_obj) {
+  size_t len;
+  const char *txt = mp_obj_str_get_data(str_obj, &len);
+  draw_bar_ansi(txt, len, -1);
+  return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(vt_vt_top_bar_obj, vt_vt_top_bar);
+
+// Bottom Bar Bridge
+static mp_obj_t vt_vt_bottom_bar(mp_obj_t self_in, mp_obj_t str_obj) {
+  size_t len;
+  const char *txt = mp_obj_str_get_data(str_obj, &len);
+  draw_bar_ansi(txt, len, -2);
+  return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(vt_vt_bottom_bar_obj, vt_vt_bottom_bar);
+
+// Invalidate the Top Bar cache
+static mp_obj_t vt_vt_top_bar_invalidate(mp_obj_t self_in) {
+  memset(top_line_last, 0, sizeof(top_line_last));
+  return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(vt_vt_top_bar_invalidate_obj,
+                          vt_vt_top_bar_invalidate);
+
+// Invalidate the Bottom Bar cache
+static mp_obj_t vt_vt_bottom_bar_invalidate(mp_obj_t self_in) {
+  memset(bot_line_last, 0, sizeof(bot_line_last));
+  return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(vt_vt_bottom_bar_invalidate_obj,
+                          vt_vt_bottom_bar_invalidate);
+
 static const mp_stream_p_t vt_stream_p = {
     .read = vt_read,
     .write = vt_write,
@@ -113,6 +163,13 @@ static mp_obj_t vt_VT_make_new(const mp_obj_type_t *type, size_t n_args,
 static const mp_rom_map_elem_t vtinal_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&vt_VT_write_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&vt_VT_draw_obj)},
+    {MP_ROM_QSTR(MP_QSTR_top_offset), MP_ROM_PTR(&vt_vt_top_offset_obj)},
+    {MP_ROM_QSTR(MP_QSTR_top_bar), MP_ROM_PTR(&vt_vt_top_bar_obj)},
+    {MP_ROM_QSTR(MP_QSTR_bottom_bar), MP_ROM_PTR(&vt_vt_bottom_bar_obj)},
+    {MP_ROM_QSTR(MP_QSTR_top_bar_invalidate),
+     MP_ROM_PTR(&vt_vt_top_bar_invalidate_obj)},
+    {MP_ROM_QSTR(MP_QSTR_bottom_bar_invalidate),
+     MP_ROM_PTR(&vt_vt_bottom_bar_invalidate_obj)},
 };
 
 static MP_DEFINE_CONST_DICT(vt_VT_locals_dict, vtinal_locals_dict_table);

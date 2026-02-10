@@ -66,6 +66,9 @@ flash:
 			-z --flash_mode dout --flash_freq 80m --flash_size 16MB \
 			0x0 /opt/micropython/ports/esp32/build-$(BOARD)/firmware.bin"
 
+copy-files:
+	mpremote connect $(PORT) cp ./modules/scripts/main.py :main.py
+	mpremote connect $(PORT) cp ./modules/scripts/status.py :status.py
 
 shell:
 	@mkdir -p $(BUILD_DIR)

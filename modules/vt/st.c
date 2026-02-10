@@ -672,6 +672,7 @@ void treset(void) {
 
 void tnew(int col, int row) {
   term = (Term){.c = {.attr = {.fg = defaultfg, .bg = defaultbg}}};
+  term.top_offset = 0;
   tresize(col, row);
   treset();
 }

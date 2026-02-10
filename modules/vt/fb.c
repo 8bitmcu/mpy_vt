@@ -55,8 +55,46 @@ uint16_t map_st_color(int number) {
       r565 = 0xFFFF;
   }
 
-  // FINAL STEP: Perform the byte swap here so the loop doesn't have to
   return (uint16_t)((r565 >> 8) | (r565 << 8));
+}
+
+void draw_bar_ansi(const char *text, size_t len, int bar_type) {
+  if (!current_vt_obj)
+    return;
+
+  // Determine which buffers to use
+  Glyph *now = (bar_type == -1) ? top_line_now : bot_line_now;
+  Glyph *last = (bar_type == -1) ? top_line_last : bot_line_last;
+
+  TCursor save_cursor = term.c;
+  Line *original_lines = term.line;
+  Line virtual_line = now;
+  term.line = &virtual_line;
+
+  // Reset buffer and cursor
+  memset(now, 0, sizeof(Glyph) * 256);
+  term.c.x = 0;
+  term.c.y = 0;
+
+  for (size_t i = 0; i < len; i++) {
+    tputc(text[i]);
+  }
+
+  // Dirty check: Compare results
+  if (memcmp(now, last, term.col * sizeof(Glyph)) == 0) {
+    term.line = original_lines;
+    term.c = save_cursor;
+    return;
+  }
+
+  // Render to the specific hardware location (-1 or -2)
+  xdrawline(now, 0, bar_type, term.col);
+
+  // Sync back-buffer
+  memcpy(last, now, term.col * sizeof(Glyph));
+
+  term.line = original_lines;
+  term.c = save_cursor;
 }
 
 void xdrawline(Line ln, int _x1, int _y1, int _x2) {
@@ -79,7 +117,15 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
   uint8_t wide = (f_width + 7) / 8;
 
   uint16_t x_start = _x1 * f_width;
-  uint16_t y_start = _y1 * f_height;
+  uint16_t y_start;
+  if (_y1 == -1) {
+    y_start = 0; // Top Bar
+  } else if (_y1 == -2) {
+    // Bottom Bar: Total Height - Font Height
+    y_start = display->height - f_height;
+  } else {
+    y_start = (_y1 * f_height) + term.top_offset; // Terminal rows
+  }
   uint16_t num_cols = _x2 - _x1;
 
   // TODO if no buffer
@@ -131,8 +177,6 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
           font_ptr_cache[i] = NULL;
         }
       }
-
-      // ... (Inside xdrawline, after caching fonts and colors) ...
 
       // Cursor Stats
       uint16_t cursor_fg = 0xFFFF; // White or custom cursor color
