@@ -17,11 +17,12 @@ OPT_SGA  = 3   # Suppress Go Ahead
 OPT_NAWS = 31  # Negotiate About Window Size
 
 class TelnetClient:
-    def __init__(self, host, port, cols, rows):
+    def __init__(self, host, port, cols, rows, on_receive_callback):
         self.host = host
         self.port = port
         self.cols = cols
         self.rows = rows
+        self.on_receive_callback = on_receive_callback
         self.socket = None
         self.connected = False
         
@@ -33,13 +34,15 @@ class TelnetClient:
         self.in_subnegotiation = False
 
     def connect(self):
-        print(f"Connecting to {self.host}:{self.port}...")
+        self.on_receive_callback(f"Connecting to {self.host}:{self.port}...")
         addr = socket.getaddrinfo(self.host, self.port)[0][-1]
         self.socket = socket.socket()
         self.socket.connect(addr)
         self.socket.setblocking(False)
+        self.socket.send(bytes([IAC, WILL, OPT_SGA, IAC, WILL, OPT_ECHO, IAC, WILL, OPT_NAWS]))
+        self.send_window_size()
         self.connected = True
-        print("Connected!")
+        self.on_receive_callback("Connected")
 
     def send_window_size(self):
         """
@@ -52,45 +55,32 @@ class TelnetClient:
 
         payload = bytes([IAC, SB, OPT_NAWS, w_h, w_l, h_h, h_l, IAC, SE])
         self.socket.send(payload)
-        print(f"REPORTED SIZE: {self.cols}x{self.rows}")
+        self.on_receive_callback(f"REPORTED SIZE: {self.cols}x{self.rows}")
 
-    def process(self):
+    def process(self, input_device):
+        # 1. HANDLE INCOMING DATA (From Server)
         try:
-            r, _, _ = select.select([self.socket], [], [], 0)
-            if not r: return
-
-            data = self.socket.recv(1024)
-            if not data:
-                self.connected = False
-                return
-
-            # Check if there is ANY Telnet command (0xFF) in this chunk
-            if IAC not in data:
-                # FAST PATH: No commands, just raw text/ANSI
-                print(data.decode('utf-8', 'ignore'), end='')
-            else:
-                # SLOW PATH: Only run the byte-by-byte logic if we see an IAC
-                self._process_complex_data(data)
+            r, _, _ = select.select([self.socket], [], [], 0.01)
+            if r:
+                data = self.socket.recv(1024)
+                if not data:
+                    self.connected = False
+                    return
+                
+                if IAC not in data:
+                    self.on_receive_callback(data.decode('utf-8', 'ignore'))
+                else:
+                    self._process_complex_data(data)
         except OSError:
             pass
 
-        # Check if there is data waiting in the serial buffer (stdin)
-        # The [sys.stdin] tells select to watch the keyboard stream
-        r, _, _ = select.select([sys.stdin], [], [], 0)
-        if r:
-            # Read the available character
-            key = sys.stdin.read(1)
-
-            if key:
-                # Send the key directly to the socket
-                # Note: Telnet usually expects \r\n for the Enter key
-                if key == '\r' or key == '\n':
-                    # Telnet standard for "Enter" is CR + LF
-                    client.socket.send(b'\r\n')
-                else:
-                    # Send the character as bytes
-                    client.socket.send(key.encode())
-
+        buf = bytearray(1)
+        if input_device.readinto(buf):
+            char_byte = buf[0]
+            if char_byte == 13:
+                self.socket.send(b'\r\n')
+            else:
+                self.socket.send(bytes([char_byte]))
 
     def _process_complex_data(self, data):
         """
@@ -137,7 +127,7 @@ class TelnetClient:
                     i += 1
 
         if clean_data:
-            print(clean_data.decode('utf-8', 'ignore'), end='')
+            self.on_receive_callback(clean_data.decode('utf-8', 'ignore'))
 
 
     def _handle_negotiation(self, command, option):

@@ -10,8 +10,9 @@ MPY_SOURCE_DIR = $(shell pwd)/../micropython
 
 USER_MODS_DIR = $(shell pwd)/modules
 
-PORT ?= /dev/ttyUSB0
+PORT ?= /dev/ttyACM0
 BAUD ?= 460800
+BOARD = ESP32_GENERIC_S3
 
 .PHONY: all image build shell clean run
 
@@ -30,37 +31,40 @@ build_esp32_base:
 	@mkdir -p $(BUILD_DIR)_base
 	docker run --rm \
 		-v $(MPY_SOURCE_DIR):/opt/micropython \
-		-v $(BUILD_DIR)_base:/opt/micropython/ports/esp32/build-ESP32_GENERIC \
+		-v $(BUILD_DIR)_base:/opt/micropython/ports/esp32/build-$(BOARD) \
 		$(ESP_IMAGE) \
 		/bin/bash -c "git config --global --add safe.directory '*' && \
 		cd /opt/micropython && \
 		source /opt/esp/idf/export.sh && \
 		make -C mpy-cross && \
-		make -C ports/esp32 BOARD=ESP32_GENERIC"
+		make -C ports/esp32 BOARD=$(BOARD)"
 
 build_esp32:
 	@mkdir -p $(BUILD_DIR)
 	docker run --rm \
 			-v $(MPY_SOURCE_DIR):/opt/micropython \
 			-v $(USER_MODS_DIR):/opt/all_modules \
-			-v $(BUILD_DIR):/opt/micropython/ports/esp32/build-ESP32_GENERIC \
+			-v $(BUILD_DIR):/opt/micropython/ports/esp32/build-$(BOARD) \
 			$(ESP_IMAGE) \
 			/bin/bash -c "source /opt/esp/idf/export.sh && \
 				cd /opt/micropython/mpy-cross && \
 				make && \
 				cd /opt/micropython/ports/esp32 && \
-				make BOARD=ESP32_GENERIC \
+				make BOARD=$(BOARD) \
 						 FROZEN_MANIFEST=/opt/all_modules/manifest.py \
 						 USER_C_MODULES=/opt/all_modules"
 
 flash:
 	docker run --rm \
 		--device=$(PORT):$(PORT) \
-		-v $(BUILD_DIR):/opt/micropython/ports/esp32/build-ESP32_GENERIC \
+		-v $(BUILD_DIR):/opt/micropython/ports/esp32/build-$(BOARD) \
 		$(ESP_IMAGE) \
 		/bin/bash -c "source /opt/esp/idf/export.sh && \
 		esptool.py --port $(PORT) erase_flash && \
-		esptool.py --chip esp32 --port $(PORT) --baud $(BAUD) write_flash -z 0x1000 /opt/micropython/ports/esp32/build-ESP32_GENERIC/firmware.bin"
+		esptool.py --chip esp32s3 --port $(PORT) --baud $(BAUD) \
+			--before default_reset --after hard_reset write_flash \
+			-z --flash_mode dout --flash_freq 80m --flash_size 16MB \
+			0x0 /opt/micropython/ports/esp32/build-$(BOARD)/firmware.bin"
 
 
 shell:
