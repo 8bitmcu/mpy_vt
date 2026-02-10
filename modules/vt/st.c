@@ -787,6 +787,8 @@ void tmoveato(int x, int y) {
 }
 
 void tmoveto(int x, int y) {
+  term.dirty[term.c.y] = 1;
+
   int miny, maxy;
 
   if (term.c.state & CURSOR_ORIGIN) {
@@ -799,6 +801,8 @@ void tmoveto(int x, int y) {
   term.c.state &= ~CURSOR_WRAPNEXT;
   term.c.x = LIMIT(x, 0, term.col - 1);
   term.c.y = LIMIT(y, miny, maxy);
+
+  term.dirty[term.c.y] = 1;
 }
 
 void tsetchar(Rune u, const Glyph *attr, int x, int y) {
@@ -860,6 +864,7 @@ void tclearregion(int x1, int y1, int x2, int y2) {
       gp->bg = term.c.attr.bg;
       gp->mode = 0;
       gp->u = ' ';
+      gp->mode &= ~ATTR_WRAP;
     }
   }
 }
@@ -1394,9 +1399,27 @@ void csihandle(void) {
   case ' ':
     switch (csiescseq.mode[1]) {
     case 'q': /* DECSCUSR -- Set Cursor Style */
-      if (xsetcursor(csiescseq.arg[0]))
-        goto unknown;
+      switch (csiescseq.arg[0]) {
+      case 0:
+      case 1:
+      case 2:
+        term.cursor_style = 2; // Block
+        break;
+      case 3:
+      case 4:
+        term.cursor_style = 4; // Underline
+        break;
+      case 5:
+      case 6:
+        term.cursor_style = 6; // Beam
+        break;
+      default:
+        term.cursor_style = 6; // Default to Beam
+        break;
+      }
+      term.dirty[term.c.y] = 1; // Force redraw of the cursor line
       break;
+
     default:
       goto unknown;
     }
@@ -1732,9 +1755,21 @@ void tcontrolcode(uchar ascii) {
   case '\t': /* HT */
     tputtab(1);
     return;
-  case '\b': /* BS */
-    tmoveto(term.c.x - 1, term.c.y);
-    return;
+  case '\b':
+    if (term.c.x > 0) {
+      tmoveto(term.c.x - 1, term.c.y);
+    } else if (term.c.y > 0) {
+      // Look at the character at the VERY END of the line ABOVE
+      Glyph *prev_line_end = &term.line[term.c.y - 1][term.col - 1];
+
+      if (prev_line_end->mode & ATTR_WRAP) {
+        // We found the wrap flag! Clear it and jump up.
+        prev_line_end->mode &= ~ATTR_WRAP;
+        tmoveto(term.col - 1, term.c.y - 1);
+      }
+    }
+    break;
+
   case '\r': /* CR */
     tmoveto(0, term.c.y);
     return;
@@ -1936,6 +1971,13 @@ void tputc(Rune u) {
 
   if (IS_SET(MODE_PRINT))
     tprinter(c, len);
+
+  if (term.c.x + 1 > term.col) {
+    // Mark the character we just typed (or the last char of the row) as a
+    // wrapper
+    term.line[term.c.y][term.c.x - 1].mode |= ATTR_WRAP;
+    tnewline(1);
+  }
 
   /*
    * STR sequence must be checked before anything else

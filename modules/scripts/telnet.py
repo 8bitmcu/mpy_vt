@@ -1,4 +1,3 @@
-import sys
 import select
 import socket
 

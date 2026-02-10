@@ -132,64 +132,90 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
         }
       }
 
+      // ... (Inside xdrawline, after caching fonts and colors) ...
+
       // Cursor Stats
-      const uint8_t beam_width = 2;
-      uint16_t cursor_col = 0xFFFF;
+      uint16_t cursor_fg = 0xFFFF; // White or custom cursor color
       int cur_x = term.c.x;
       int cur_y = term.c.y;
       bool show_cursor = !(term.mode & MODE_HIDE);
 
+      // Get current style from terminal state (Default to 6 if not set)
+      // 0,1,2 = Block | 3,4 = Underline | 5,6 = Beam
+      int style = term.cursor_style;
+
       // rendering loop
       for (uint8_t line_y = 0; line_y < f_height; line_y++) {
-        // Optimization: Is this specific scanline part of the underline?
-        // Usually, the last or second-to-last row looks best.
-        bool is_underline_row = (line_y == f_height - 1);
+        bool is_last_row = (line_y >= f_height - 2); // 2-pixel thick underline
 
         for (uint16_t i = 0; i < num_cols; i++) {
           const uint8_t *char_row_data = font_ptr_cache[i];
+          int col_idx = _x1 + i;
           bool is_cursor_cell =
-              (show_cursor && _y1 == cur_y && (_x1 + i) == cur_x);
-
-          // Check if THIS character has the underline attribute
-          bool has_underline = (ln[_x1 + i].mode & ATTR_UNDERLINE);
+              (show_cursor && _y1 == cur_y && col_idx == cur_x);
+          bool has_underline = (ln[col_idx].mode & ATTR_UNDERLINE);
 
           if (char_row_data) {
             const uint8_t *data_ptr = char_row_data + (line_y * wide);
             for (uint8_t b_idx = 0; b_idx < wide; b_idx++) {
               uint8_t bits = data_ptr[b_idx];
               for (uint8_t b = 0; b < 8; b++) {
+                uint8_t pixel_col = (b_idx * 8) + b;
+                if (pixel_col >= f_width)
+                  break; // Font width safety
 
-                // 1. Priority: Beam Cursor
-                if (is_cursor_cell && b_idx == 0 && b < beam_width) {
-                  display->i2c_buffer[buf_idx++] = cursor_col;
+                uint16_t final_color =
+                    (bits & 0x80) ? bg_cache[i] : fg_cache[i];
+
+                // --- CURSOR OVERLAY LOGIC ---
+                if (is_cursor_cell) {
+                  switch (style) {
+                  case 0:
+                  case 1:
+                  case 2: // BLOCK
+                    // Cursor Color
+                    final_color = ~final_color;
+                    break;
+                  case 3:
+                  case 4: // UNDERLINE
+                    if (is_last_row)
+                      final_color = cursor_fg;
+                    break;
+                  case 5:
+                  case 6: // BEAM (Vertical Bar)
+                  default:
+                    if (pixel_col < 2)
+                      final_color = cursor_fg;
+                    break;
+                  }
                 }
-                // 2. Priority: Underline Attribute
-                else if (has_underline && is_underline_row) {
-                  display->i2c_buffer[buf_idx++] = fg_cache[i];
+                // --- ATTR_UNDERLINE LOGIC (Normal text) ---
+                else if (has_underline && is_last_row) {
+                  final_color = fg_cache[i];
                 }
-                // 3. Normal Pixel
-                else {
-                  display->i2c_buffer[buf_idx++] =
-                      (bits & 0x80) ? bg_cache[i] : fg_cache[i];
-                }
+
+                display->i2c_buffer[buf_idx++] = final_color;
                 bits <<= 1;
               }
             }
           } else {
-            // Handle Empty Space (Still underline empty spaces if attribute is
-            // set!)
+            // Handle Empty Space Cursor
             for (uint8_t p = 0; p < f_width; p++) {
-              if (is_cursor_cell && p < beam_width) {
-                display->i2c_buffer[buf_idx++] = cursor_col;
-              } else if (has_underline && is_underline_row) {
-                display->i2c_buffer[buf_idx++] = fg_cache[i];
-              } else {
-                display->i2c_buffer[buf_idx++] = bg_cache[i];
+              uint16_t final_color = bg_cache[i];
+              if (is_cursor_cell) {
+                if ((style <= 2) || (style <= 4 && is_last_row) ||
+                    (style > 4 && p < 2)) {
+                  final_color = cursor_fg;
+                }
+              } else if (has_underline && is_last_row) {
+                final_color = fg_cache[i];
               }
+              display->i2c_buffer[buf_idx++] = final_color;
             }
           }
         }
       }
+
       // SPI Burst
       mp_hal_pin_write(display->dc, 1);
       mp_hal_pin_write(display->cs, 0);

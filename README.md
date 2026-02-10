@@ -11,77 +11,126 @@ This project implements a high-performance, attribute-aware terminal emulator fo
 * **Dynamic VT100/ANSI Support:** Support for standard terminal commands, including cursor positioning, screen clearing, and scrolling regions.
 * **Hardware-Accelerated Rendering:** C-based scanline buffering that maximizes SPI throughput and eliminates screen tearing.
 
-### **Advanced Styling & Attributes**
-* **Dual-Font Engine:** Native support for **Bold** (`\033[1m`) and **Regular** font weights with seamless mid-line switching.
-* **Rich Text Attributes:**
-    * **Underline:** Standard ANSI underlining logic for text emphasis.
-    * **Inverse Video:** Full support for reverse-video (`\033[7m`), perfect for highlighting and selection.
-
-### **Full Xterm 256-Color Support**
-The engine supports the complete 256-color ANSI palette, including:
-* **0-15:** Standard and High-Intensity ANSI colors.
-* **16-231:** 6x6x6 RGB Color Cube.
-* **232-255:** 24-step grayscale ramp.
-
-All colors are mathematically mapped to **RGB565** and pre-swapped for **Big-Endian SPI** displays (ST7789), ensuring zero-overhead rendering during the draw cycle.
-
-### **User Interface & Ergonomics**
-* **Modern "Beam" Cursor:** A sleek, 2-pixel vertical bar cursor providing a modern "code editor" aesthetic.
-* **Visibility Control:** Integrated support for terminal modes to show/hide the cursor (`MODE_HIDE`) and toggle behavior based on focus.
-* **Smart Space Handling:** Intelligent rendering of trailing spaces ensures that underscores and cursors appear correctly even at the end of a line.
-
-### **Developer-Friendly Architecture**
-* **Zero-Copy Font Access:** Utilizes the MicroPython buffer protocol to read font data directly from Flash memory, saving precious RAM.
-* **MicroPython Integrated:** Simple Pythonic API to write data, change styles, and interface with ESP32 hardware.
-* **Scalable Scanline Buffer:** Optimized memory footprint that allows for high-resolution terminal grids on resource-constrained microcontrollers.
-
 ### **Dirty-Line Tracking & Optimization**
 Unlike standard display drivers that refresh the entire screen for every character, `mpy_vt` utilizes the `st` engine's internal dirty-line bitmask:
 * **Selective Redrawing:** Only modified rows are sent over SPI. Typing a single character updates only **1/20th** (or less) of the screen.
 * **Atomic Windowing:** Uses hardware-level address windowing (`CASET`/`RASET`) to update specific horizontal slices, significantly reducing bus contention.
 
+## 🧩 Modules
+
+This project is composed of four specialized modules that work in tandem to create a full system console.
+
+| Module | Role | Stream Type | Description |
+| :---   | :--- | :--- | :--- |
+| `st7789` | Display Driver | N/A | Modified version of the standard driver. Exposes internal frame buffer pointers to vt for direct-memory access (DMA) rendering. |
+| `vt` | Terminal Engine | Writable | "The core emulator. Receives ANSI text, updates internal state, and renders changes to the st7789 display." |
+| `tdeck_kbd` | Input Driver | Readable | Low-level driver for the T-Deck I2C keyboard/trackball. Handles key scanning and interrupt flags. |
+| `tdeck_kv` | Stream Glue | Read/Write | "A composite ""Key-Video"" object. It binds vt (Output) and tdeck_kbd (Input) into a single stream object compatible with os.dupterm." |
+
 ## 🔌 MicroPython REPL Integration
 
-### **Native `os.dupterm` Support**
-The engine implements the MicroPython stream protocol, allowing it to act as a secondary system console. By redirecting the REPL, you can view real-time logs, tracebacks, and interactive prompts directly on your hardware.
+To attach the T-Deck hardware to the MicroPython REPL, we use the tdeck_kv glue module. This ensures that stdout (print statements) goes to the visual terminal, while stdin (typing) is pulled from the keyboard driver.
 
-* **Non-Blocking I/O:** Implements `MP_EAGAIN` logic to ensure the physical USB/UART connection remains active while the display mirrors the output.
-* **Seamless Redirection:** Fully compatible with standard MicroPython redirection workflows.
+**Note**: The `vt` module can be used alone on other systems with an `st7789` compatible display. You can send a vt instance to `os.dupterm`
 
-### **Usage Example**
 ```python
-# buffer_size MUST be at a minimum: lcd_width * font_height * 2
-tft = tft_config.config(rotation=1, buffer_size=14*320*2)
+import terminus_mpy_regular as rfont
+import terminus_mpy_bold as bfont
+import machine
+import vt
+import tdeck_kbd
+import tdeck_kv
+import os
+import network
+import time
+import st7789
+import time
+
+# Screen dimensions in pixel
+screen_width = 320
+screen_height = 240
+
+# How many characters can we fit on the screen
+rows = screen_height // rfont.HEIGHT
+cols = screen_width // rfont.WIDTH
+
+# Must be called before initializing LCD / Keyboard
+pwr_en = machine.Pin(10, machine.Pin.OUT)
+pwr_en.value(1)
+time.sleep(0.1)
+
+# Initialze LCD
+spi = machine.SPI(2, baudrate=40000000, sck=machine.Pin(40), mosi=machine.Pin(41))
+tft = st7789.ST7789(spi,
+    screen_height,
+    screen_width,
+    reset=machine.Pin(1, machine.Pin.OUT),
+    dc=machine.Pin(11, machine.Pin.OUT),
+    cs=machine.Pin(12, machine.Pin.OUT),
+    backlight=machine.Pin(42, machine.Pin.OUT),
+    rotation=1,
+    buffer_size=screen_width*rfont.HEIGHT*2)
 tft.init()
 
-# Calculate the number of columns/rows based on font size and LCD size
-rows = 240 // font_regular.HEIGHT
-cols = 320 // font_regular.WIDTH
+# Initialize ST engine (Output Stream)
+term = vt.VT(tft, cols, rows, rfont, bfont)
 
-# Optionally pass a bold font as the 4th parameter
-#t = vt.VT(tft, cols, rows, font_regular, font_bold)
-t = vt.VT(tft, cols, rows, font_regular)
+# Initialize keyboard (Input Stream)
+kbd = tdeck_kbd.Keyboard(sda=18, scl=8)
 
-# Optionally redirect REPL to this terminal
-os.dupterm(t)
+# Combine ST & keyboard into one stream object
+kv = tdeck_kv.KV(term , kbd)
 
+# Redirect to REPL
+os.dupterm(kv)
 
-# Set up a timer to update the display
+# Update LCD periodically
 def refresh_loop(timer):
-    t.draw()
+    term.draw()
 
 # 30ms = ~33 FPS.
 refresh_timer = machine.Timer(0)
 refresh_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=refresh_loop)
+
 ```
 
 ## 🛠️ API Reference
 
-| Method | Description |
-| :--- | :--- |
-| `v.write(data)` | Manually feed ANSI strings or raw bytes into the engine. |
-| `v.draw()` | Triggers a refresh of all "dirty" lines to the hardware. |
-| `ioctl / read / write` | Internal stream protocol methods for `os.dupterm` compatibility. |
+### **1. `vt.VT` (Terminal Engine)**
+*The logic core. Handles ANSI escape sequences, character attributes, and buffer management.*
+
+| Method | Parameters | Description |
+| :--- | :--- | :--- |
+| **`VT()`** | `display, cols, rows, font, [bold]` | **Constructor.** Requires an initialized `st7789` object, column/row counts, and at least one font module. |
+| **`write()`** | `data` | Feeds ANSI strings or raw bytes into the parser. Updates internal state and marks lines as "dirty." |
+| **`draw()`** | *None* | Triggers the render pass. Iterates through dirty lines and pushes pixel data to the `st7789` hardware. |
+| **`ioctl()`** | `cmd, arg` | Internal stream protocol implementation for `os.dupterm` compatibility. |
+
+### **2. `tdeck_kbd.Keyboard` (Input Driver)**
+*The hardware interface for the T-Deck's I2C-based keyboard and trackball.*
+
+| Method | Parameters | Description |
+| :--- | :--- | :--- |
+| **`Keyboard()`** | `sda, slc` | **Constructor.** Takes both sda and slc pin numbers. |
+| **`read()`** | `n` | Reads up to `n` bytes from the keyboard buffer. Returns `None` if no keys are pressed. |
+| **`ioctl()`** | `cmd, arg` | Handles polling requests; used by the system to check for pending input without blocking. |
+
+### **3. `tdeck_kv.KV` (Stream Glue)**
+*The virtual wrapper that binds separate Input and Output hardware into a single duplex stream.*
+
+| Method | Parameters | Description |
+| :--- | :--- | :--- |
+| **`KV()`** | `vt_obj, kbd_obj` | **Constructor.** Links a `vt` instance (Output) with a `tdeck_kbd` instance (Input). |
+| **`read()`** | `n` | Redirects the request to the linked `kbd_obj.read(n)`. |
+| **`write()`** | `buf` | Redirects the request to the linked `vt_obj.write(buf)`. |
+| **`ioctl()`** | `cmd, arg` | Aggregates status from both objects (e.g., checks if KBD has data or if VT is ready). |
+
+### **4. `st7789` (Modified Display Driver)**
+*Standard display driver with specific C-layer extensions for terminal performance.*
+
+| Feature | Type | Description |
+| :--- | :--- | :--- |
+| **Standard API** | Methods | Retains full compatibility with `fill()` and `pixel()` for drawing non-terminal UI elements. |
 
 ## ⚖️ License & Attribution
 

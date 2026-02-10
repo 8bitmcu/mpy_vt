@@ -8,9 +8,9 @@
 #include <sys/types.h>
 #include <wchar.h>
 
-#include "py/runtime.h"
-#include "py/mphal.h"
 #include "mpfile.h"
+#include "py/mphal.h"
+#include "py/runtime.h"
 #include "st7789.h"
 
 /* macros */
@@ -45,6 +45,8 @@ enum glyph_attribute {
   ATTR_WDUMMY = 1 << 10,
   ATTR_BOLD_FAINT = ATTR_BOLD | ATTR_FAINT,
 };
+
+enum cursor_style { CURSOR_BLOCK = 2, CURSOR_UNDERLINE = 4, CURSOR_BAR = 6 };
 
 enum selection_mode { SEL_IDLE = 0, SEL_EMPTY = 1, SEL_READY = 2 };
 
@@ -225,6 +227,7 @@ typedef struct {
   int icharset;    /* selected charset for sequence */
   int *tabs;
   Rune lastc; /* last printed char outside of sequence, 0 if control */
+  int cursor_style;
 } Term;
 
 /* CSI Escape sequence structs */
