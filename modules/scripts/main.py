@@ -62,24 +62,29 @@ os.dupterm(kv)
 sts = status.StatusBar(term, width=cols)
 sts.refresh()
 
-# 30ms = ~33 FPS.
-# Define the two timers
-draw_timer = machine.Timer(0)
-logic_timer = machine.Timer(1)
 
-# 1. The FAST loop (30ms) - Only for rendering pixels
+# The FAST loop (30ms) - Only for rendering pixels
+def scheduled_fast(_):
+    term.draw()
+
 def fast_loop(t):
     # Use schedule to keep the ISR (Interrupt Service Routine) light
-    micropython.schedule(lambda _: term.draw(), 0)
+    micropython.schedule(scheduled_fast, 0)
 
-# 2. The SLOW loop (1000ms) - Only for calculating stats
+# The SLOW loop (1000ms) - Only for calculating stats
+def scheduled_slow(_):
+    sts.refresh()
+
 def slow_loop(t):
     # Update the status bar string (ANSI parsing happens here)
-    micropython.schedule(lambda _: sts.refresh(), 0)
+    micropython.schedule(scheduled_slow, 0)
 
-# Initialize them
+# 30ms = ~33 FPS.
+draw_timer = machine.Timer(0)
 draw_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=fast_loop)
-logic_timer.init(period=1000, mode=machine.Timer.PERIODIC, callback=slow_loop)
+
+statusbar_timer = machine.Timer(1)
+statusbar_timer.init(period=1000, mode=machine.Timer.PERIODIC, callback=slow_loop)
 
 
 
@@ -95,7 +100,13 @@ sys.stdout.write("\x1b[ 6 q")
 # Block Cursor
 #sys.stdout.write("\x1b[ 2 q")
 
-
+def leak():
+    import gc
+    for i in range(10):
+        before = gc.mem_free()
+        time.sleep(1)
+        after = gc.mem_free()
+        print(f"Leak: {before - after} bytes/sec")
 
 
 def wifi():
@@ -130,11 +141,11 @@ def wifi():
 
 # Example: Telehack (great for testing text formatting)
 # Host: telehack.com, Port: 23
-def telehack():
+def quick_telnet(name, port):
     def handle_telnet_output(text):
         term.write(text)
 
-    client = telnet.TelnetClient("telehack.com", 23, cols=cols, rows=rows, on_receive_callback=handle_telnet_output)
+    client = telnet.TelnetClient(name, port, cols=cols, rows=rows, on_receive_callback=handle_telnet_output)
     client.connect()
 
     try:
@@ -144,6 +155,28 @@ def telehack():
     except KeyboardInterrupt:
         print("\nDisconnected.")
         client.socket.close()
+
+
+def telehack():
+    quick_telnet("telehack.com", 23)
+
+def retrocampus():
+    quick_telnet("bbs.retrocampus.com", 23)
+
+def thekeep():
+    quick_telnet("thekeep.net", 23)
+
+def baud300():
+    quick_telnet("300baud.dynu.net", 2525)
+
+def amis86():
+    quick_telnet("amis86.ddns.net", 9000)
+
+def cbbs():
+    quick_telnet("cbbsoutpost.servebbs.com", 23)
+
+
+
 
 
 # type wifi() to connect to wifi

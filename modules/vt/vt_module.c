@@ -56,9 +56,18 @@ static mp_uint_t vt_ioctl(mp_obj_t self_in, mp_uint_t request, uintptr_t arg,
 }
 
 static mp_obj_t vt_VT_write(mp_obj_t self_in, mp_obj_t arg) {
-  size_t len;
-  const char *data = mp_obj_str_get_data(arg, &len);
-  vt_internal_write(data, len);
+  mp_buffer_info_t bufinfo;
+
+  // Check if the object is a bytearray or bytes first
+  if (mp_get_buffer(arg, &bufinfo, MP_BUFFER_READ)) {
+    vt_internal_write((const char *)bufinfo.buf, bufinfo.len);
+  } else {
+    // Fallback to string handling
+    size_t len;
+    const char *data = mp_obj_str_get_data(arg, &len);
+    vt_internal_write(data, len);
+  }
+
   return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(vt_VT_write_obj, vt_VT_write);
@@ -86,19 +95,35 @@ static mp_obj_t vt_vt_top_offset(mp_obj_t self_in, mp_obj_t offset_obj) {
 MP_DEFINE_CONST_FUN_OBJ_2(vt_vt_top_offset_obj, vt_vt_top_offset);
 
 // Top Bar Bridge
+// Optimized Top Bar Bridge - Accepts String, Bytes, or Bytearray
 static mp_obj_t vt_vt_top_bar(mp_obj_t self_in, mp_obj_t str_obj) {
-  size_t len;
-  const char *txt = mp_obj_str_get_data(str_obj, &len);
-  draw_bar_ansi(txt, len, -1);
+  mp_buffer_info_t bufinfo;
+  if (mp_get_buffer(str_obj, &bufinfo, MP_BUFFER_READ)) {
+    draw_bar_ansi((const char *)bufinfo.buf, bufinfo.len, -1);
+  } else {
+    size_t len;
+    const char *txt = mp_obj_str_get_data(str_obj, &len);
+    draw_bar_ansi(txt, len, -1);
+  }
   return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(vt_vt_top_bar_obj, vt_vt_top_bar);
 
 // Bottom Bar Bridge
 static mp_obj_t vt_vt_bottom_bar(mp_obj_t self_in, mp_obj_t str_obj) {
-  size_t len;
-  const char *txt = mp_obj_str_get_data(str_obj, &len);
-  draw_bar_ansi(txt, len, -2);
+  mp_buffer_info_t bufinfo;
+
+  // Check if the object supports the buffer protocol (bytes, bytearray, etc.)
+  if (mp_get_buffer(str_obj, &bufinfo, MP_BUFFER_READ)) {
+    // Use raw bytes directly from the bytearray/bytes object
+    draw_bar_ansi((const char *)bufinfo.buf, bufinfo.len, -2);
+  } else {
+    // Fallback for strings
+    size_t len;
+    const char *txt = mp_obj_str_get_data(str_obj, &len);
+    draw_bar_ansi(txt, len, -2);
+  }
+
   return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(vt_vt_bottom_bar_obj, vt_vt_bottom_bar);
