@@ -1,4 +1,4 @@
-# mpy_vt: Optimized ANSI Terminal Engine for ESP32 (MicroPython)
+# mpy_vt: Optimized ANSI Terminal Engine for MicroPython
 
 This project implements a high-performance, attribute-aware terminal emulator for MicroPython. By wrapping the [st](https://st.suckless.org/) (suckless terminal) engine in a custom C module, it achieves desktop-class terminal features on embedded hardware.
 
@@ -18,21 +18,22 @@ Unlike standard display drivers that refresh the entire screen for every charact
 * **Atomic Windowing:** Uses hardware-level address windowing (`CASET`/`RASET`) to update specific horizontal slices, significantly reducing bus contention.
 
 ## **Zero-Allocation Status Bar**
-**Zero Memory Fragmentation**: The status bar's memory usage is a "flat line." It never grows, and it never needs to be cleaned up.
-**Zero Latency Jitter**: Since the Garbage Collector isn't triggered by the status bar, your UI stays consistently responsive. No "stuttering" every 30 seconds.
-**Native ANSI Rendering**: ANSI escape sequences are embedded directly into the bytearray at initialization. The C engine treats the entire bar as a single, pre-styled memory block, allowing for instant, flicker-free UI updates with zero overhead for color or positioning logic.
+* **Zero Memory Fragmentation**: The status bar's memory usage is a "flat line." It never grows, and it never needs to be cleaned up.
+* **Zero Latency Jitter**: Since the Garbage Collector isn't triggered by the status bar, your UI stays consistently responsive. No "stuttering" every 30 seconds.
+* **Native ANSI Rendering**: ANSI escape sequences are embedded directly into the bytearray at initialization. The C engine treats the entire bar as a single, pre-styled memory block, allowing for instant, flicker-free UI updates with zero overhead for color or positioning logic.
 
 
 ## 🧩 Modules
 
-This project is composed of four specialized modules that work in tandem to create a full system console.
+This project is composed of five specialized modules that work in tandem to create a full system console.
 
 | Module | Role | Stream Type | Description |
 | :---   | :--- | :--- | :--- |
 | `st7789` | Display Driver | N/A | Modified version of the standard driver. Exposes internal frame buffer pointers to vt for direct-memory access (DMA) rendering. |
 | `vt` | Terminal Engine | Writable | "The core emulator. Receives ANSI text, updates internal state, and renders changes to the st7789 display." |
 | `tdeck_kbd` | Input Driver | Readable | Low-level driver for the T-Deck I2C keyboard/trackball. Handles key scanning and interrupt flags. |
-| `tdeck_kv` | Stream Glue | Read/Write | "A composite ""Key-Video"" object. It binds vt (Output) and tdeck_kbd (Input) into a single stream object compatible with os.dupterm." |
+| `tdeck_trk` | Motion Engine | Interrupts | Low-level driver for the T-Deck trackball. Uses GPIO interrupts to track relative motion (deltas) and supports edge-detection for short/long click durations. |
+| `tdeck_kvm` | Stream Glue | Read/Write | "A composite Keyboard-Video-Mouse (trackball) object. It binds vt (Output) and tdeck_kbd (Input) into a single stream object compatible with os.dupterm." |
 
 
 ## 📟 Supported Hardware: LILYGO T-Deck
@@ -52,7 +53,7 @@ import terminus_mpy_bold as bfont
 import machine
 import vt
 import tdeck_kbd
-import tdeck_kv
+import tdeck_kvm
 import os
 import network
 import time
@@ -92,10 +93,10 @@ term = vt.VT(tft, cols, rows, rfont, bfont)
 kbd = tdeck_kbd.Keyboard(sda=18, scl=8)
 
 # Combine ST & keyboard into one stream object
-kv = tdeck_kv.KV(term , kbd)
+kvm = tdeck_kvm.KVM(term , kbd)
 
 # Redirect to REPL
-os.dupterm(kv)
+os.dupterm(kvm)
 
 # Update LCD periodically
 def refresh_loop(timer):
@@ -135,17 +136,28 @@ refresh_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=refresh_loop
 | **`read()`** | `n` | Reads up to `n` bytes from the keyboard buffer. Returns `None` if no keys are pressed. |
 | **`ioctl()`** | `cmd, arg` | Handles polling requests; used by the system to check for pending input without blocking. |
 
-### **3. `tdeck_kv.KV` (Stream Glue)**
+### **3. `tdeck_trk` (Trackball Driver)**
+*Low-level motion engine that handles GPIO interrupts for the T-Deck trackball and click-duration logic.*
+
+| Method | Parameters | Description |
+| :--- | :--- | :--- |
+| **`init()`** | None | **Initializer.** Configures GPIO pins, enables internal pull-ups, and attaches the high-frequency Interrupt Service Routine (ISR) to the motion and click pins. |
+| **`get_scroll_vert()`** | None | Returns an **integer** representing the vertical movement delta since the last call. Resets the internal counter to zero upon reading. |
+| **`get_scroll_horiz()`** | None | Returns an **integer** representing the horizontal movement delta since the last call. Resets the internal counter to zero upon reading. |
+| **`get_click()`** | None | Returns **`True`** only on a "Short Press" release (20ms to 500ms). If a "Long Press" (>500ms) is detected, it internally triggers a hardware-level `KeyboardInterrupt`. |
+
+### **4. `tdeck_kvm.KVM` (Stream Glue)**
 *The virtual wrapper that binds separate Input and Output hardware into a single duplex stream.*
 
 | Method | Parameters | Description |
 | :--- | :--- | :--- |
-| **`KV()`** | `vt_obj, kbd_obj` | **Constructor.** Links a `vt` instance (Output) with a `tdeck_kbd` instance (Input). |
+| **`KVM()`** | `vt_obj, kbd_obj` | **Constructor.** Links a `vt` instance (Output) with a `tdeck_kbd` instance (Input). |
 | **`read()`** | `n` | Redirects the request to the linked `kbd_obj.read(n)`. |
 | **`write()`** | `buf` | Redirects the request to the linked `vt_obj.write(buf)`. |
+| **`inject()`** | `data` | **Macro Injection.** Accepts a string or bytes and places them into the high-priority ring buffer to be read by the REPL or active application. |
 | **`ioctl()`** | `cmd, arg` | Aggregates status from both objects (e.g., checks if KBD has data or if VT is ready). |
 
-### **4. `st7789` (Modified Display Driver)**
+### **5. `st7789` (Modified Display Driver)**
 *Standard display driver with specific C-layer extensions for terminal performance.*
 
 | Feature | Type | Description |

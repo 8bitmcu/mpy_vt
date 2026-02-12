@@ -13,6 +13,8 @@
 #include "py/runtime.h"
 #include "st7789.h"
 
+#define HISTSIZE 100
+
 /* macros */
 #define SMIN(a, b) ((a) < (b) ? (a) : (b))
 #define SMAX(a, b) ((a) < (b) ? (b) : (a))
@@ -29,6 +31,10 @@
 
 #define TRUECOLOR(r, g, b) (1 << 24 | (r) << 16 | (g) << 8 | (b))
 #define IS_TRUECOL(x) (1 << 24 & (x))
+#define TLINE(y)                                                               \
+  ((y) < term.scr                                                              \
+       ? term.hist[((y) + term.histi - term.scr + HISTSIZE + 1) % HISTSIZE]    \
+       : term.line[(y) - term.scr])
 
 enum glyph_attribute {
   ATTR_NULL = 0,
@@ -100,6 +106,9 @@ void ttywrite(const char *, size_t, int);
 
 void resettitle(void);
 
+void kscrolldown(const Arg *a);
+void kscrollup(const Arg *a);
+
 void selclear(void);
 void selinit(void);
 void selstart(int, int, int);
@@ -112,6 +121,7 @@ size_t utf8encode(Rune, char *);
 void *xmalloc(size_t);
 void *xrealloc(void *, size_t);
 char *xstrdup(const char *);
+
 
 /* config.h globals */
 extern char *utmp;
@@ -210,21 +220,24 @@ typedef struct {
 
 /* Internal representation of the screen */
 typedef struct {
-  int row;         /* nb row */
-  int col;         /* nb col */
-  Line *line;      /* screen */
-  Line *alt;       /* alternate screen */
-  int *dirty;      /* dirtyness of lines */
-  TCursor c;       /* cursor */
-  int ocx;         /* old cursor col */
-  int ocy;         /* old cursor row */
-  int top;         /* top    scroll limit */
-  int bot;         /* bottom scroll limit */
-  int mode;        /* terminal mode flags */
-  int esc;         /* escape state flags */
-  char trantbl[4]; /* charset table translation */
-  int charset;     /* current charset */
-  int icharset;    /* selected charset for sequence */
+  int row;             /* nb row */
+  int col;             /* nb col */
+  Line *line;          /* screen */
+  Line *alt;           /* alternate screen */
+  Line hist[HISTSIZE]; /* history buffer */
+  int histi;           /* history index */
+  int scr;             /* scroll back */
+  int *dirty;          /* dirtyness of lines */
+  TCursor c;           /* cursor */
+  int ocx;             /* old cursor col */
+  int ocy;             /* old cursor row */
+  int top;             /* top    scroll limit */
+  int bot;             /* bottom scroll limit */
+  int mode;            /* terminal mode flags */
+  int esc;             /* escape state flags */
+  char trantbl[4];     /* charset table translation */
+  int charset;         /* current charset */
+  int icharset;        /* selected charset for sequence */
   int *tabs;
   Rune lastc; /* last printed char outside of sequence, 0 if control */
   int cursor_style;

@@ -4,7 +4,8 @@ import machine
 import micropython
 import vt
 import tdeck_kbd
-import tdeck_kv
+import tdeck_trk
+import tdeck_kvm
 import os
 import network
 import sys
@@ -52,26 +53,49 @@ term.top_offset(status_height)
 # Initialize keyboard
 kbd = tdeck_kbd.Keyboard(sda=18, scl=8)
 
+# Initialize Trackball
+tdeck_trk.init()
+
 # Combine ST & keyboard into one stream object
-kv = tdeck_kv.KV(term , kbd)
+kvm = tdeck_kvm.KVM(term , kbd)
 
 # Redirect to REPL
-os.dupterm(kv)
+os.dupterm(kvm)
 
 # status bar component
 sts = status.StatusBar(term, width=cols)
 sts.refresh()
 
-
-# The FAST loop (30ms) - Only for rendering pixels
+# The FAST loop (30ms)
 def scheduled_fast(_):
+
+    # Trackball horizontal movement translates into going up/down the shell command history
+    h_delta = tdeck_trk.get_scroll_horiz()
+    if abs(h_delta) > 1:
+        if h_delta < 0:
+            kvm.inject("\x1b[A") # Injects 'Up' key into REPL
+        else:
+            kvm.inject("\x1b[B") # Injects 'Down' key into REPL
+
+    # Trackball vertical movement translates into showing history
+    # Default history is 100 lines defined as HISTSIZE in st.h
+    v_delta = tdeck_trk.get_scroll_vert()
+    if abs(v_delta) > 1:
+        if v_delta < 0:
+            term.scrolldown()
+        else:
+            term.scrollup()
+
+    # Long clicking will raise KeyboardInterrupt (internally to tdeck_trk)
+    tdeck_trk.get_click()
+
     term.draw()
 
 def fast_loop(t):
     # Use schedule to keep the ISR (Interrupt Service Routine) light
     micropython.schedule(scheduled_fast, 0)
 
-# The SLOW loop (1000ms) - Only for calculating stats
+# The SLOW loop (1000ms)
 def scheduled_slow(_):
     sts.refresh()
 
@@ -177,7 +201,7 @@ def quick_telnet(name, port):
 
     try:
         while client.connected:
-            client.process(input_device=kbd)
+            client.process(input_device=kvm)
             time.sleep_ms(2)
     except KeyboardInterrupt:
         print("\nDisconnected.")

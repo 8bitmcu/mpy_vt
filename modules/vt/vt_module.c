@@ -78,6 +78,19 @@ static mp_obj_t vt_VT_draw(mp_obj_t self_in) {
 }
 MP_DEFINE_CONST_FUN_OBJ_1(vt_VT_draw_obj, vt_VT_draw);
 
+static mp_obj_t vt_VT_scrollup(mp_obj_t self_in) {
+  kscrollup(&(const Arg){.i = -1});
+  return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(vt_VT_scrollup_obj, vt_VT_scrollup);
+
+static mp_obj_t vt_VT_scrolldown(mp_obj_t self_in) {
+  kscrolldown(&(const Arg){.i = -1});
+  return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(vt_VT_scrolldown_obj, vt_VT_scrolldown);
+
+
 static mp_obj_t vt_vt_top_offset(mp_obj_t self_in, mp_obj_t offset_obj) {
   vt_VT_obj_t *self = MP_OBJ_TO_PTR(self_in);
   int offset = mp_obj_get_int(offset_obj);
@@ -188,6 +201,8 @@ static mp_obj_t vt_VT_make_new(const mp_obj_type_t *type, size_t n_args,
 static const mp_rom_map_elem_t vtinal_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&vt_VT_write_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&vt_VT_draw_obj)},
+    {MP_ROM_QSTR(MP_QSTR_scrollup), MP_ROM_PTR(&vt_VT_scrollup_obj)},
+    {MP_ROM_QSTR(MP_QSTR_scrolldown), MP_ROM_PTR(&vt_VT_scrolldown_obj)},
     {MP_ROM_QSTR(MP_QSTR_top_offset), MP_ROM_PTR(&vt_vt_top_offset_obj)},
     {MP_ROM_QSTR(MP_QSTR_top_bar), MP_ROM_PTR(&vt_vt_top_bar_obj)},
     {MP_ROM_QSTR(MP_QSTR_bottom_bar), MP_ROM_PTR(&vt_vt_bottom_bar_obj)},
