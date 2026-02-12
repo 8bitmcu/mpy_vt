@@ -33,7 +33,7 @@ pwr_en.value(1)
 time.sleep(0.1)
 
 # Initialze LCD
-spi = machine.SPI(2, baudrate=40000000, sck=machine.Pin(40), mosi=machine.Pin(41))
+spi = machine.SPI(1, baudrate=40000000, sck=machine.Pin(40), mosi=machine.Pin(41))
 tft = st7789.ST7789(spi,
     screen_height,
     screen_width,
@@ -97,10 +97,30 @@ sys.stdout.write("\x1b[ 6 q")
 # Underline Cursor
 #sys.stdout.write("\x1b[ 4 q")
 
-# Block Cursor
+# Block Cursor (default)
 #sys.stdout.write("\x1b[ 2 q")
 
-def leak():
+
+
+# Overwrite prompt (optional)
+sys.ps1 = "\033[1;37m$ \033[0m"
+sys.ps2 = "\033[1;37m. \033[0m"
+
+
+
+
+
+
+
+
+class Command:
+    def __init__(self, func):
+        self.func = func
+    def __repr__(self):
+        self.func()
+        return ""
+
+def check_leaks():
     import gc
     for i in range(10):
         before = gc.mem_free()
@@ -108,8 +128,9 @@ def leak():
         after = gc.mem_free()
         print(f"Leak: {before - after} bytes/sec")
 
+leak = Command(check_leaks)
 
-def wifi():
+def connect_wlan():
     # ANSI Escape Codes
     CLR = "\x1b[0m"      # Reset all
     BOLD = "\x1b[1m"     # Bold (Swaps to your bfont)
@@ -138,6 +159,12 @@ def wifi():
     print(f"{BOLD}DNS Server:{CLR}  {dns}")
     print(f"{CYAN}{'-' * 33}{CLR}")
 
+wlan = Command(connect_wlan)
+
+def clear_screen():
+    print("\033[2J\033[H", end="")
+
+clear = Command(clear_screen)
 
 # Example: Telehack (great for testing text formatting)
 # Host: telehack.com, Port: 23

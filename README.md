@@ -1,8 +1,9 @@
-# mpy_vt: Optimized ANSI Terminal Engine for ESP32
+# mpy_vt: Optimized ANSI Terminal Engine for ESP32 (MicroPython)
 
 This project implements a high-performance, attribute-aware terminal emulator for MicroPython. By wrapping the [st](https://st.suckless.org/) (suckless terminal) engine in a custom C module, it achieves desktop-class terminal features on embedded hardware.
 
 ![animation](screen.gif)
+
 
 ## 🚀 Features
 
@@ -16,6 +17,12 @@ Unlike standard display drivers that refresh the entire screen for every charact
 * **Selective Redrawing:** Only modified rows are sent over SPI. Typing a single character updates only **1/20th** (or less) of the screen.
 * **Atomic Windowing:** Uses hardware-level address windowing (`CASET`/`RASET`) to update specific horizontal slices, significantly reducing bus contention.
 
+## **Zero-Allocation Status Bar**
+**Zero Memory Fragmentation**: The status bar's memory usage is a "flat line." It never grows, and it never needs to be cleaned up.
+**Zero Latency Jitter**: Since the Garbage Collector isn't triggered by the status bar, your UI stays consistently responsive. No "stuttering" every 30 seconds.
+**Native ANSI Rendering**: ANSI escape sequences are embedded directly into the bytearray at initialization. The C engine treats the entire bar as a single, pre-styled memory block, allowing for instant, flicker-free UI updates with zero overhead for color or positioning logic.
+
+
 ## 🧩 Modules
 
 This project is composed of four specialized modules that work in tandem to create a full system console.
@@ -26,6 +33,12 @@ This project is composed of four specialized modules that work in tandem to crea
 | `vt` | Terminal Engine | Writable | "The core emulator. Receives ANSI text, updates internal state, and renders changes to the st7789 display." |
 | `tdeck_kbd` | Input Driver | Readable | Low-level driver for the T-Deck I2C keyboard/trackball. Handles key scanning and interrupt flags. |
 | `tdeck_kv` | Stream Glue | Read/Write | "A composite ""Key-Video"" object. It binds vt (Output) and tdeck_kbd (Input) into a single stream object compatible with os.dupterm." |
+
+
+## 📟 Supported Hardware: LILYGO T-Deck
+
+This project includes a tuned configuration specifically for the LILYGO T-Deck, optimizing for its unique hardware layout and memory capabilities.
+
 
 ## 🔌 MicroPython REPL Integration
 
@@ -93,6 +106,7 @@ refresh_timer = machine.Timer(0)
 refresh_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=refresh_loop)
 
 ```
+
 
 ## 🛠️ API Reference
 

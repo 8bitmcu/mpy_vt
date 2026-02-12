@@ -22,8 +22,8 @@ class StatusBar:
         # Text:   UP 0:00 | MEM 000K | WiFi OFF | BAT 000%
 
         # Build the middle padding dynamically
-        left = b"UP 0:00 | MEM 000K | " # 21 chars
-        right = b"WiFi OFF | BAT 000%" # 20 chars
+        left = b"UP 0:00 | MEM      | " # 21 chars
+        right = b"WiFi OFF | BAT  00%" # 20 chars
 
         # If width is 40, mid_pad will be -1. We need to shrink the labels or widen the bar.
         # Let's assume width is 53 (standard for T-Deck with this font)
@@ -36,7 +36,7 @@ class StatusBar:
         s_len = len(self.style)
 
         self.off_up   = s_len + 3   # Index of the first '0' in 0:00
-        self.off_mem  = s_len + 14  # Index of the first '0' in 000K
+        self.off_mem  = s_len + 13  # Index of the first '0' in 000K
 
         # We calculate from the end of the buffer (before CLEAR and NULL)
         # The last character of the buffer (excluding CLEAR/NULL) is (len - 5)
@@ -66,22 +66,43 @@ class StatusBar:
         if pct < 0: pct = 0
         if pct > 100: pct = 100
 
-        mem_k = gc.mem_free() // 1024
+        # 1. Memory Calculation
+        mem_free = gc.mem_free()
+        
+        if mem_free >= 1048576: # 1024 * 1024
+            # Use MB mode (e.g., 7.4M)
+            # We scale by 10 to get one decimal place without floats
+            mem_scaled = (mem_free * 10) // 1048576 
+            val = mem_scaled // 10    # Whole MB
+            dec = mem_scaled % 10     # First decimal
+            unit = 77                 # ASCII 'M'
+            
+            # Poke: [Space][Digit][.][Digit][M]
+            # Since MB is usually < 10 on T-Deck (8MB total), 
+            # we use the first slot for a space or a 1 if you overclock/expand.
+            self.buffer[self.off_mem]     = 48 + (val // 10) if val >= 10 else 32
+            self.buffer[self.off_mem + 1] = 48 + (val % 10)
+            self.buffer[self.off_mem + 2] = 46 # ASCII '.'
+            self.buffer[self.off_mem + 3] = 48 + dec
+            self.buffer[self.off_mem + 4] = unit
+        else:
+            # Use KB mode (Original 000K logic)
+            mem_k = mem_free // 1024
+            mh = (mem_k // 100) % 10
+            mt = (mem_k // 10) % 10
+            mu = mem_k % 10
+            
+            self.buffer[self.off_mem]     = 48 + mh if mh > 0 else 32
+            self.buffer[self.off_mem + 1] = 48 + mt if (mt > 0 or mh > 0) else 32
+            self.buffer[self.off_mem + 2] = 48 + mu
+            self.buffer[self.off_mem + 3] = 75 # ASCII 'K'
+            self.buffer[self.off_mem + 4] = 32 # Extra space to clear old 'M'
 
         # Poke digits into the buffer (ASCII 48 is '0')
         # Uptime M:SS
         self.buffer[self.off_up]     = 48 + (mins % 10)
         self.buffer[self.off_up + 2] = 48 + (secs // 10)
         self.buffer[self.off_up + 3] = 48 + (secs % 10)
-
-        # Memory 000K
-        mh = (mem_k // 100) % 10
-        mt = (mem_k // 10) % 10
-        mu = mem_k % 10
-
-        self.buffer[self.off_mem]     = 48 + mh if mh > 0 else 32
-        self.buffer[self.off_mem + 1] = 48 + mt if (mt > 0 or mh > 0) else 32
-        self.buffer[self.off_mem + 2] = 48 + mu
 
         # Battery 000%
         bh = (pct // 100) % 10

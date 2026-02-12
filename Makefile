@@ -12,7 +12,7 @@ USER_MODS_DIR = $(shell pwd)/modules
 
 PORT ?= /dev/ttyACM0
 BAUD ?= 460800
-BOARD = ESP32_GENERIC_S3
+BOARD = LILYGO_T_DECK
 
 .PHONY: all image build shell clean run
 
@@ -41,30 +41,35 @@ build_esp32_base:
 
 build_esp32:
 	@mkdir -p $(BUILD_DIR)
+	rm -rf $(BUILD_DIR)/*
 	docker run --rm \
-			-v $(MPY_SOURCE_DIR):/opt/micropython \
-			-v $(USER_MODS_DIR):/opt/all_modules \
-			-v $(BUILD_DIR):/opt/micropython/ports/esp32/build-$(BOARD) \
-			$(ESP_IMAGE) \
-			/bin/bash -c "source /opt/esp/idf/export.sh && \
-				cd /opt/micropython/mpy-cross && \
-				make && \
-				cd /opt/micropython/ports/esp32 && \
-				make BOARD=$(BOARD) \
-						 FROZEN_MANIFEST=/opt/all_modules/manifest.py \
-						 USER_C_MODULES=/opt/all_modules"
-
-flash:
-	docker run --rm \
-		--device=$(PORT):$(PORT) \
-		-v $(BUILD_DIR):/opt/micropython/ports/esp32/build-$(BOARD) \
+		-v $(MPY_SOURCE_DIR):/opt/micropython \
+		-v $(USER_MODS_DIR):/opt/all_modules \
+		-v $(BUILD_DIR):/opt/external_build \
 		$(ESP_IMAGE) \
 		/bin/bash -c "source /opt/esp/idf/export.sh && \
-		esptool.py --port $(PORT) erase_flash && \
-		esptool.py --chip esp32s3 --port $(PORT) --baud $(BAUD) \
-			--before default_reset --after hard_reset write_flash \
-			-z --flash_mode dout --flash_freq 80m --flash_size 16MB \
-			0x0 /opt/micropython/ports/esp32/build-$(BOARD)/firmware.bin"
+			make -C /opt/micropython/mpy-cross clean && \
+			make -C /opt/micropython/mpy-cross && \
+			make -C /opt/micropython/ports/esp32 \
+				BOARD=$(BOARD) \
+				USER_C_MODULES=/opt/all_modules \
+				FROZEN_MANIFEST=/opt/all_modules/manifest.py && \
+			cp /opt/micropython/ports/esp32/build-$(BOARD)/firmware.bin /opt/external_build/ && \
+			cp /opt/micropython/ports/esp32/build-$(BOARD)/micropython.bin /opt/external_build/ && \
+			chown -R $(shell id -u):$(shell id -g) /opt/external_build/."
+
+flash:
+	docker run --rm --privileged \
+		--device=$(PORT):$(PORT) \
+		-v $(BUILD_DIR):/flash_dir \
+		$(ESP_IMAGE) \
+		/bin/bash -c "source /opt/esp/idf/export.sh && \
+			esptool.py --chip esp32s3 --port $(PORT) --baud $(BAUD) erase_flash && \
+			esptool.py --chip esp32s3 --no-stub --port $(PORT) --baud $(BAUD) \
+				--before default_reset --after hard_reset write_flash \
+				-z --flash_mode dio --flash_freq 80m --flash_size 16MB \
+				0x0 /flash_dir/firmware.bin"
+
 
 copy-files:
 	mpremote connect $(PORT) cp ./modules/scripts/main.py :main.py
@@ -85,4 +90,20 @@ repl:
 		./build-standard/micropython
 
 clean:
-	rm -rf $(BUILD_DIR)
+	docker run --rm \
+		--device=$(PORT):$(PORT) \
+		-v $(BUILD_DIR):/opt/micropython/ports/esp32/build-$(BOARD) \
+		$(ESP_IMAGE) \
+		/bin/bash -c "source /opt/esp/idf/export.sh && \
+			cd /opt/micropython/ports/esp32 && \
+			idf.py fullclean && \
+			idf.py -D MICROPY_BOARD=ESP32_GENERIC_S3 set-target esp32s3 && \
+			idf.py -D IDF_TARGET=esp32s3 reconfigure"
+
+	docker run --rm \
+		-v $(MPY_SOURCE_DIR):/opt/micropython \
+		-v $(BUILD_DIR):/opt/external_build \
+		$(ESP_IMAGE) \
+		/bin/bash -c "make -C /opt/micropython/mpy-cross clean && \
+									rm -rf /opt/micropython/ports/esp32/build* && \
+									rm -rf /opt/external_build/*"

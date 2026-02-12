@@ -1,0 +1,4 @@
+#define MICROPY_HW_BOARD_NAME "LILYGO T-Deck"
+#define MICROPY_HW_MCU_NAME   "ESP32S3"
+
+#define MICROPY_HW_ENABLE_UART_REPL         (1)
