@@ -87,7 +87,9 @@ def scheduled_fast(_):
             term.scrollup()
 
     # Long clicking will raise KeyboardInterrupt (internally to tdeck_trk)
-    tdeck_trk.get_click()
+    # Short click will inject escape
+    if tdeck_trk.get_click():
+        kvm.inject("\x1b")
 
     term.draw()
 
@@ -129,7 +131,6 @@ sys.stdout.write("\x1b[ 6 q")
 # Overwrite prompt (optional)
 sys.ps1 = "\033[1;37m$ \033[0m"
 sys.ps2 = "\033[1;37m. \033[0m"
-
 
 
 

@@ -2,7 +2,7 @@ TERM_MOD_DIR := $(USERMOD_DIR)
 
 # Add all C files to SRC_USERMOD.
 SRC_USERMOD += $(TERM_MOD_DIR)/vt_module.c
-SRC_USERMOD += $(TERM_MOD_DIR)/st_term.c
+SRC_USERMOD += $(TERM_MOD_DIR)/st.c
 SRC_USERMOD += $(TERM_MOD_DIR)/fb.c
 
 # We can add our module folder to include paths if needed

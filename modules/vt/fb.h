@@ -6,8 +6,8 @@
  * License: MIT
  */
 
-#ifndef STUB_H
-#define STUB_H
+#ifndef FB_H
+#define FB_H
 
 #include "st.h"  /* To get the Glyph and Rune types */
 #include "win.h" /* To ensure we match original X11 signatures */
@@ -60,4 +60,4 @@ extern unsigned int defaultcs;
 
 void draw_bar_ansi(const char *text, size_t len, int bar_type);
 
-#endif /* STUB_H */
+#endif /* FB_H */

@@ -13,4 +13,6 @@ include(${CMAKE_CURRENT_LIST_DIR}/tdeck_kvm/micropython.cmake)
 # include the trackball module
 include(${CMAKE_CURRENT_LIST_DIR}/tdeck_trk/micropython.cmake)
 
+# include the vi editor module
+include(${CMAKE_CURRENT_LIST_DIR}/vi/micropython.cmake)
 

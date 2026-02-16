@@ -22,10 +22,23 @@ image:
 build:
 	@mkdir -p $(BUILD_DIR)
 	docker run --rm \
-		-v $(USER_MODS_DIR):/opt/my_modules \
+		-v $(USER_MODS_DIR):/opt/all_modules \
 		-v $(BUILD_DIR):$(CONTAINER_WORKDIR)/ports/unix/build-standard \
 		$(IMAGE_NAME) \
-		make USER_C_MODULES=/opt/my_modules CFLAGS_EXTRA="-DMODULE_TERM_ENABLED=1 -DMICROPY_PY_OS_DUPTERM=1"
+		make USER_C_MODULES=/opt/all_modules CFLAGS_EXTRA="-DMODULE_TERM_ENABLED=1 -DMICROPY_PY_OS_DUPTERM=1"
+
+build_unix:
+	@mkdir -p $(BUILD_DIR)_unix
+	docker run --rm \
+			-v $(MPY_SOURCE_DIR):/opt/micropython \
+			-v $(USER_MODS_DIR):/opt/manifest \
+			-v $(USER_MODS_DIR)/vi:/opt/all_modules/vi \
+			-v $(USER_MODS_DIR)/scripts:/opt/all_modules/scripts \
+			-v $(BUILD_DIR):$(CONTAINER_WORKDIR)/ports/unix/build-standard \
+			$(IMAGE_NAME) \
+			/bin/bash -c "cd /opt/micropython && \
+			make -C mpy-cross && \
+			make -C ports/unix USER_C_MODULES=/opt/all_modules FROZEN_MANIFEST=/opt/manifest/manifest.py"
 
 build_esp32_base:
 	@mkdir -p $(BUILD_DIR)_base
