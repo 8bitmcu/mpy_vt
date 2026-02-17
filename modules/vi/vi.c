@@ -19,13 +19,13 @@
 #include <unistd.h>
 
 #include "extmod/vfs.h"
+#include "py/gc.h"
 #include "py/misc.h"
 #include "py/mpconfig.h"
 #include "py/mphal.h"
 #include "py/obj.h"
 #include "py/runtime.h"
 #include "py/stream.h"
-#include "py/gc.h"
 
 #include "vi_module.h"
 
@@ -145,15 +145,15 @@ static const char *blank = " \n\r\t";
 static const char *specials = ",.:;=-+*/(){}<>[]!@#$%^&|\\?\"\'";
 
 static inline FILE *vfs_fopen(const char *path, const char *mode) {
-  // 1. Convert C strings to MicroPython Objects
+  // Convert C strings to MicroPython Objects
   mp_obj_t path_obj = mp_obj_new_str(path, strlen(path));
   mp_obj_t mode_obj = mp_obj_new_str(mode, strlen(mode));
 
-  // 2. Look up the standard 'open' function that Python uses
+  // Look up the standard 'open' function that Python uses
   // This function knows all about the /flash mount point
   mp_obj_t open_fn = mp_load_global(MP_QSTR_open);
 
-  // 3. Call it: open(path, mode)
+  // Call it: open(path, mode)
   nlr_buf_t nlr;
   if (nlr_push(&nlr) == 0) {
     mp_obj_t file_obj =
@@ -167,15 +167,15 @@ static inline FILE *vfs_fopen(const char *path, const char *mode) {
 }
 
 static inline int vfs_open(const char *path, const char *mode) {
-  // 1. Convert C strings to MicroPython Objects
+  // Convert C strings to MicroPython Objects
   mp_obj_t path_obj = mp_obj_new_str(path, strlen(path));
   mp_obj_t mode_obj = mp_obj_new_str(mode, strlen(mode));
 
-  // 2. Look up the standard 'open' function that Python uses
+  // Look up the standard 'open' function that Python uses
   // This function knows all about the /flash mount point
   mp_obj_t open_fn = mp_load_global(MP_QSTR_open);
 
-  // 3. Call it: open(path, mode)
+  // Call it: open(path, mode)
   nlr_buf_t nlr;
   if (nlr_push(&nlr) == 0) {
     mp_obj_t file_obj =
@@ -188,14 +188,6 @@ static inline int vfs_open(const char *path, const char *mode) {
   }
 }
 
-static inline int vfs_close(int fd) {
-  mp_obj_t file = (mp_obj_t)fd;
-  mp_obj_t dest[2];
-  mp_load_method(file, MP_QSTR_close, dest);
-  mp_call_method_n_kw(0, 0, dest);
-  return 0;
-}
-
 static inline int vfs_fclose(FILE *stream) {
   mp_obj_t file = (mp_obj_t)stream;
   mp_obj_t dest[2];
@@ -204,14 +196,12 @@ static inline int vfs_fclose(FILE *stream) {
   return 0;
 }
 
-// Helper to call close() on a MicroPython file object
 void vfs_close_obj(mp_obj_t file_obj) {
   mp_obj_t dest[2];
   mp_load_method(file_obj, MP_QSTR_close, dest);
   mp_call_method_n_kw(0, 0, dest);
 }
 
-// Helper to call rename in MicroPython VFS
 int vfs_rename(const char *old, const char *new) {
   nlr_buf_t nlr;
   if (nlr_push(&nlr) == 0) {
@@ -253,20 +243,20 @@ long long vfs_fdlength(int fd) {
   mp_obj_t file_obj = (mp_obj_t)fd;
   mp_obj_t dest[2];
 
-  // 1. Seek to the end (offset 0 from SEEK_END which is 2)
+  // Seek to the end (offset 0 from SEEK_END which is 2)
   mp_load_method(file_obj, MP_QSTR_seek, dest);
   mp_call_method_n_kw(
       2, 0,
       (mp_obj_t[]){dest[0], dest[1], mp_obj_new_int(0), mp_obj_new_int(2)});
 
-  // 2. Tell gives us the current position (the end)
+  // Tell gives us the current position (the end)
   mp_load_method(file_obj, MP_QSTR_tell, dest);
   mp_obj_t size_obj = mp_call_method_n_kw(0, 0, dest);
 
-  // 3. Convert Python Object to C long long
+  // Convert Python Object to C long long
   long long length = (long long)mp_obj_get_int(size_obj);
 
-  // 4. Seek back to the beginning (SEEK_SET is 0)
+  // Seek back to the beginning (SEEK_SET is 0)
   mp_load_method(file_obj, MP_QSTR_seek, dest);
   mp_call_method_n_kw(1, 0, (mp_obj_t[]){dest[0], dest[1], mp_obj_new_int(0)});
 
@@ -295,15 +285,13 @@ int xprintf(const char *format, ...) {
   mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT(fmt), ##__VA_ARGS__)
 
 ssize_t getdelim(char **lineptr, size_t *n, int delim, FILE *stream) {
-  if (lineptr == NULL || n == NULL || stream == NULL) {
-    // errno might not be defined in some embedded environments,
-    // but works fine on the Unix port.
+  if (lineptr == NULL || n == NULL || stream == NULL)
     return -1;
-  }
 
-  if (*lineptr == NULL) {
-    *n = 128; // Initial guess
-    if ((*lineptr = m_malloc(*n)) == NULL)
+  if (*lineptr == NULL || *n == 0) {
+    *n = 128;
+    *lineptr = m_new(char, *n);
+    if (!*lineptr)
       return -1;
   }
 
@@ -311,35 +299,36 @@ ssize_t getdelim(char **lineptr, size_t *n, int delim, FILE *stream) {
   size_t pos = 0;
 
   while ((c = fgetc(stream)) != EOF) {
-    // Ensure we have space for the char and the null terminator
+    // Safety Check: Ensure space for current char + null terminator
     if (pos + 1 >= *n) {
-      size_t old_n = *n; // Store the current size
-      size_t new_n = old_n + 128;
+      size_t new_n =
+          (*n < 64) ? 128
+                    : (*n * 2); // Exponential growth to prevent fragmentation
 
-      // FIX: Pass the old_n as the second argument
-      char *new_ptr = m_realloc(*lineptr, new_n);
+      // Use m_renew for GC-tracked realloc
+      char *new_ptr = m_renew_maybe(char, *lineptr, *n, new_n, true);
 
-      if (!new_ptr)
-        return -1;
+      if (!new_ptr) {
+        // If we run out of memory, we don't crash.
+        // We null-terminate what we have and return it.
+        (*lineptr)[pos] = '\0';
+        return (pos > 0) ? (ssize_t)pos : -1;
+      }
+
       *lineptr = new_ptr;
       *n = new_n;
     }
 
-    ((unsigned char *)(*lineptr))[pos++] = c;
+    ((unsigned char *)(*lineptr))[pos++] = (unsigned char)c;
     if (c == delim)
       break;
   }
 
-  if (c == EOF && pos == 0)
+  if (pos == 0)
     return -1;
 
   (*lineptr)[pos] = '\0';
-  return pos;
-}
-
-// ToyBox might also expect getline(), which is just getdelim with '\n'
-ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
-  return getdelim(lineptr, n, '\n', stream);
+  return (ssize_t)pos;
 }
 
 // Die unless we can open/create a file, returning FILE *.
@@ -352,49 +341,43 @@ FILE *xfopen(char *path, char *mode) {
   return f;
 }
 
-off_t fdlength(int fd) {
-  struct stat st;
-  if (fstat(fd, &st) == 0)
-    return st.st_size;
-
-  off_t current = lseek(fd, 0, SEEK_CUR);
-  off_t size = lseek(fd, 0, SEEK_END);
-  lseek(fd, current, SEEK_SET);
-  return size;
-}
-
-// Die if there's an error other than EOF.
-size_t xread(int fd, void *buf, size_t len) {
-  ssize_t ret = read(fd, buf, len);
-  if (ret < 0)
-    error_exit("xread");
-
-  return ret;
-}
-
-ssize_t writeall(int fd, void *buf, size_t len) {
+void vi_xwrite(int fd, const void *buf, size_t len) {
   size_t count = 0;
+  const char *ptr = (const char *)buf;
 
   while (count < len) {
-    int i = vfs_write(fd, count + (char *)buf, len - count);
-    if (i < 1)
-      return i;
+    // Attempt to write the remaining buffer
+    int i = vfs_write(fd, ptr + count, len - count);
+
+    // Error handling
+    if (i < 1) {
+      // Instead of error_exit, we raise a MicroPython exception.
+      // This is caught by your NLR guard, returning the user to the REPL
+      // instead of rebooting the device.
+      mp_raise_msg(&mp_type_OSError,
+                   MP_ERROR_TEXT("vi: write failed (disk full or VFS error)"));
+    }
     count += i;
   }
-
-  return count;
-}
-
-void xwrite(int fd, void *buf, size_t len) {
-  if (len != writeall(fd, buf, len))
-    error_exit("xwrite");
 }
 
 // Die unless we can allocate memory.
 void *vi_xmalloc(size_t size) {
-  void *ret = malloc(size);
-  if (!ret)
-    error_exit("vi_xmalloc(%ld)", (long)size);
+  // Allocate from MicroPython's GC-tracked heap
+  void *ret = m_malloc_maybe(size);
+
+  if (!ret) {
+    // Instead of a hard crash, we can try to trigger a GC collection
+    // and try one last time.
+    gc_collect();
+    ret = m_malloc_maybe(size);
+  }
+
+  if (!ret) {
+    // If it STILL fails, we use MicroPython's controlled emergency exit
+    // This will be caught by the NLR guard we added to your constructor!
+    mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("vi: out of memory"));
+  }
 
   return ret;
 }
@@ -420,21 +403,14 @@ char *xmprintf(char *format, ...) {
   return ret;
 }
 
-// Die unless we can allocate prezeroed memory.
-void *xzalloc(size_t size) {
-  void *ret = vi_xmalloc(size);
-  memset(ret, 0, size);
-  return ret;
-}
-
 // Die unless we can change the size of an existing allocation, possibly
 // moving it.  (Notice different arguments from libc function.)
-void *vi_xrealloc(void *ptr, size_t size) {
-  ptr = realloc(ptr, size);
-  if (!ptr)
-    error_exit("xrealloc");
-
-  return ptr;
+void *vi_xrealloc(void *ptr, size_t old_size, size_t new_size) {
+  void *ret = m_renew_maybe(char, ptr, old_size, new_size, true);
+  if (!ret) {
+    mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("vi: realloc failed"));
+  }
+  return ret;
 }
 
 int vi_wcwidth(uint32_t u) {
@@ -443,17 +419,6 @@ int vi_wcwidth(uint32_t u) {
   if (u < 32 || (u >= 0x7f && u < 0xa0))
     return -1; // Control characters
   return 1;    // Everything else is 1 cell wide
-}
-
-// Remove trailing \n
-char *chomp(char *s) {
-  char *p;
-
-  if (s)
-    for (p = s + strlen(s); p > s && (p[-1] == '\r' || p[-1] == '\n'); *--p = 0)
-      ;
-
-  return s;
 }
 
 int utf8towc(unsigned *wc, char *str, unsigned len) {
@@ -554,73 +519,38 @@ char *xgetdelim(FILE *fp, int delim) {
   size_t len = 0;
   long ll;
 
-  errno = 0;
   if (1 > (ll = getdelim(&new, &len, delim, fp))) {
-    if (errno && errno != EINTR)
-      exit(1);
-    free(new);
-    new = 0;
+    if (new) {
+      m_free(new);
+      new = 0;
+
+      if (ferror(fp)) {
+        mp_raise_msg(&mp_type_OSError,
+                     MP_ERROR_TEXT("vi: I/O error during read"));
+      }
+      return NULL;
+    }
   }
 
   return new;
 }
 
-// Return line of text from file. Strips trailing newline (if any).
-char *xgetline(FILE *fp) { return chomp(xgetdelim(fp, '\n')); }
+char *xgetline(FILE *fp) {
+  // xgetdelim already uses m_renew_maybe and handles GC allocation
+  char *line = xgetdelim(fp, '\n');
 
-// This table skips both B0 and BOTHER
-static const int speeds[] = {
-    50,      75,      110,     134,     150,     200,    300,     600,
-    1200,    1800,    2400,    4800,    9600,    19200,  38400,   57600,
-    115200,  230400,  460800,  500000,  576000,  921600, 1000000, 1152000,
-    1500000, 2000000, 2500000, 3000000, 3500000, 4000000};
+  if (line) {
+    size_t len = strlen(line);
+    // Chomp: Remove \n and \r from the end of the string
+    while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+      line[--len] = '\0';
+    }
+  }
 
-// Show bits per second for cfspeed value. Assumes we have a valid speed
-unsigned cfspeed2bps(unsigned speed) {
-  if (!(speed & 15))
-    return 0;
-  if (speed > 15)
-    speed = (speed & 15) + 15;
-
-  return speeds[--speed];
+  return line;
 }
 
-// Convert bits per second to cfspeed value. Returns 0 for unknown bps
-unsigned bps2cfspeed(unsigned baud) {
-  int i = 0;
-
-  while (i < ARRAY_LEN(speeds))
-    if (speeds[i++] == baud)
-      return i + (i > 15) * (4096 - 16 + 1);
-
-  return 0;
-}
-
-void cfmakeraw(struct termios *t) {}
-
-int cfsetspeed(struct termios *termios_p, speed_t speed) {
-  (void)termios_p;
-  (void)speed;
-  return 0; // Success, but do nothing
-}
-
-void xferror(FILE *fp) {
-  if (ferror(fp))
-    exit(1);
-}
-
-void xsetspeed(struct termios *tio, int bps) {
-  int i = bps2cfspeed(bps);
-
-  if (!i)
-    error_exit("unknown speed: %d", bps);
-  cfsetspeed(tio, i);
-}
-
-void xputsl(char *s, int len) {
-  mp_hal_stdout_tx_strn(s, 1);
-  xferror(stdout);
-}
+void xputsl(char *s, int len) { mp_hal_stdout_tx_strn(s, 1); }
 
 // Append to list in-order (*list unchanged unless empty, ->prev is new node)
 void dlist_add_nomalloc(struct double_list **list, struct double_list *new) {
@@ -676,10 +606,21 @@ void *llist_pop(void *list) {
 }
 
 void llist_free_double(void *node) {
-  struct double_list *d = node;
+  struct double_list *d = (struct double_list *)node;
 
-  free(d->data);
-  free(d);
+  if (d) {
+    // Free the string data (the line content)
+    if (d->data) {
+      // Using m_free because we might not have the original
+      // allocation size handy in this context.
+      m_free(d->data);
+    }
+
+    // Free the node structure itself
+    // Note: m_free is used here to match your likely
+    // m_new/m_malloc calls for the node.
+    m_free(d);
+  }
 }
 
 // Call a function (such as free()) on each element of a linked list.
@@ -703,13 +644,12 @@ int munmap(void *addr, size_t length) {
 }
 
 // Die unless we can allocate a copy of this string.
-char *vi_xstrdup(char *s) {
-  long len = strlen(s);
-  char *c = vi_xmalloc(++len);
-
-  memcpy(c, s, len);
-
-  return c;
+char *vi_xstrdup(const char *s) {
+  size_t len = strlen(s) + 1;
+  char *new = m_new(char, len);
+  if (new)
+    memcpy(new, s, len);
+  return new;
 }
 
 // xputs with no newline
@@ -726,9 +666,6 @@ int set_terminal(int fd, int raw, int speed, struct termios *old) {
   if (old)
     *old = tio;
 
-  cfmakeraw(&tio);
-  if (speed)
-    xsetspeed(&tio, speed);
   if (!raw) {
     // Put the "cooked" bits back.
 
@@ -750,11 +687,6 @@ int set_terminal(int fd, int raw, int speed, struct termios *old) {
   }
 
   return tcsetattr(fd, TCSAFLUSH, &tio);
-}
-
-void xset_terminal(int fd, int raw, int speed, struct termios *old) {
-  if (-1 == set_terminal(fd, raw, speed, old))
-    exit(1);
 }
 
 struct scan_key_list {
@@ -1394,15 +1326,36 @@ static size_t text_strstr(size_t offset, char *str, int dir) {
 }
 
 static void block_list_free(void *node) {
-  struct block_list *d = node;
+  struct block_list *d = (struct block_list *)node;
+  if (!d)
+    return;
 
-  if (d->node->alloc == HEAP)
-    free((void *)d->node->data);
-  else if (d->node->alloc == MMAP)
-    munmap((void *)d->node->data, d->node->size);
+  if (d->node) {
+    // Handle the actual data buffer
+    if (d->node->alloc == HEAP) {
+      // Memory was allocated via m_new/vi_xmalloc
+      if (d->node->data) {
+        m_free((void *)d->node->data);
+      }
+    } else if (d->node->alloc == MMAP) {
+// On ESP32, if you aren't using a real mmap bridge,
+// this case might be unreachable or need custom VFS handling.
+// For now, we treat it as a safety no-op or a standard free.
+#ifdef __linux__
+      munmap((void *)d->node->data, d->node->size);
+#else
+      // If you 'mmaped' by just reading into a buffer, free it:
+      if (d->node->data)
+        m_free((void *)d->node->data);
+#endif
+    }
 
-  free(d->node);
-  free(d);
+    // Free the node structure (metadata)
+    m_free(d->node);
+  }
+
+  // Free the list wrapper itself
+  m_free(d);
 }
 
 static void show_error(char *fmt, ...) {
@@ -1436,9 +1389,21 @@ static void show_error(char *fmt, ...) {
 }
 
 static void linelist_unload() {
-  llist_traverse((void *)TT.slices, llist_free_double);
-  llist_traverse((void *)TT.text, block_list_free);
-  TT.slices = 0, TT.text = 0;
+  // Free the slice list (metadata about line fragments)
+  if (TT.slices) {
+    llist_traverse((void *)TT.slices, llist_free_double);
+    TT.slices = NULL;
+  }
+
+  // Free the actual text blocks (the document data)
+  if (TT.text) {
+    llist_traverse((void *)TT.text, block_list_free);
+    TT.text = NULL;
+  }
+
+  // Reset file-state metadata
+  TT.filesize = 0;
+  TT.cursor = 0;
 }
 
 static void linelist_load(char *filename, int ignore_missing) {
@@ -1460,17 +1425,23 @@ static void linelist_load(char *filename, int ignore_missing) {
     return;
   }
 
-  size = vfs_fdlength(fd); // Use our new size helper
+  size = vfs_fdlength(fd);
   if (size > 0) {
-    // Allocate memory for the file content
-    char *buf = malloc(size);
+    // Use MicroPython's managed allocator
+    // m_new_maybe returns NULL instead of raising a fatal exception
+    char *buf = m_new_maybe(char, size);
+
     if (buf) {
       vfs_read(fd, buf, size);
-      // Insert the buffer into vi's slice list
+      // HEAP flag here tells vi to 'own' this m_new pointer
       insert_str(buf, 0, size, size, HEAP);
       TT.filesize = text_filesize();
+    } else {
+      show_error("File too large for available RAM");
+      insert_str(vi_xstrdup("\n"), 0, 1, 1, HEAP);
     }
-  } else if (size == 0) {
+  } else {
+    // Empty file case
     insert_str(vi_xstrdup("\n"), 0, 1, 1, HEAP);
   }
 
@@ -1506,7 +1477,7 @@ static int write_file(char *filename) {
 
   if (s) {
     do {
-      xwrite(fd, (void *)s->node->data, s->node->len);
+      vi_xwrite(fd, (void *)s->node->data, s->node->len);
       s = s->next;
     } while (s != TT.slices);
   }
@@ -1571,25 +1542,40 @@ static int vi_yank(char reg, size_t from, int flags) {
   size_t start = from, end = TT.cursor;
   char *str;
 
-  memset(TT.yank.data, 0, TT.yank.alloc);
   if (TT.vi_mov_flag & 0x80000000)
     start = TT.cursor, end = from;
   else
-    TT.cursor = start; // yank moves cursor to left pos always?
+    TT.cursor = start;
 
-  if (TT.yank.alloc < end - from) {
-    size_t new_bounds = (1 + end - from) / 1024;
-    new_bounds += ((1 + end - from) % 1024) ? 1 : 0;
-    new_bounds *= 1024;
-    TT.yank.data = vi_xrealloc(TT.yank.data, new_bounds);
+  size_t required = end - start + 1; // +1 for null terminator
+
+  if (TT.yank.alloc < required) {
+    // Round up to nearest 512 or 1024 to reduce frequency of reallocs
+    size_t new_bounds = (required + 511) & ~511;
+
+    // CORRECT CALL: Pass the pointer, the OLD size, and the NEW size
+    void *new_ptr = vi_xrealloc(TT.yank.data, TT.yank.alloc, new_bounds);
+
+    if (!new_ptr) {
+      show_error("Yank failed: Out of memory");
+      return 0;
+    }
+
+    TT.yank.data = new_ptr;
     TT.yank.alloc = new_bounds;
   }
 
-  // this is naive copy
-  for (str = TT.yank.data; start < end; start++, str++)
-    *str = text_byte(start);
+  // Clear buffer safely before copy
+  if (TT.yank.data) {
+    memset(TT.yank.data, 0, TT.yank.alloc);
 
-  *str = 0;
+    // Performance optimization: Using a loop with text_byte is slow.
+    // If your engine supports it, a block copy is better, but for now:
+    for (str = TT.yank.data; start < end; start++, str++)
+      *str = text_byte(start);
+
+    *str = 0;
+  }
 
   return 1;
 }
@@ -1707,15 +1693,24 @@ static int vi_M(int count0, int count1, char *unused) {
 }
 
 static int search_str(char *s, int direction) {
+  // Perform the search
   size_t pos = text_strstr(TT.cursor + 1, s, direction);
 
+  // Manage the search history buffer
   if (TT.last_search != s) {
-    free(TT.last_search);
+    if (TT.last_search) {
+      // SWAP: free() -> m_free()
+      m_free(TT.last_search);
+    }
+    // Ensure vi_xstrdup uses m_new internally
     TT.last_search = vi_xstrdup(s);
   }
 
-  if (pos != SIZE_MAX)
+  // Update cursor if found
+  if (pos != SIZE_MAX) {
     TT.cursor = pos;
+  }
+
   check_cursor_bounds();
   return 0;
 }
@@ -2512,7 +2507,7 @@ static void draw_page() {
   if (TT.vi_mode == 1)
     xprintf("\e[1mNORMAL\e[m %s", TT.filename);
   if (TT.vi_mode == 2)
-    xprintf("\e[1mINSERT\e[m");
+    xprintf("\e[1mINSERT\e[m %s", TT.filename);
   if (!TT.vi_mode) {
     cx_scr = xprintf("%s", TT.il->data);
     cy_scr = TT.screen_height;
@@ -2530,7 +2525,6 @@ static void draw_page() {
   xprintf("\e[%u;%uH%s\e[%u;%uH", TT.screen_height + 1,
           (int)(1 + TT.screen_width - strlen(toybuf)), toybuf, cy_scr + 1,
           cx_scr + 1);
-  xferror(stdout);
 }
 
 static struct termios orig_termios;
@@ -2540,22 +2534,22 @@ void set_terminal_raw(void) {
   tcgetattr(0, &orig_termios);
   struct termios raw = orig_termios;
 
-  // 1. Input: Allow Carriage Return to Newline mapping (don't disable ICRNL)
+  // Input: Allow Carriage Return to Newline mapping (don't disable ICRNL)
   // We want to keep ICRNL so Enter key works as \n
   raw.c_iflag &= ~(BRKINT | INPCK | ISTRIP | IXON);
   raw.c_iflag |= ICRNL;
 
-  // 2. Output: Ensure Newline is converted to Carriage Return + Newline
+  // Output: Ensure Newline is converted to Carriage Return + Newline
   // This prevents the "staircase" effect that looks like prepended spaces.
   raw.c_oflag |= (OPOST | ONLCR);
 
-  // 3. Local: No echo, no line-buffering (Canonical mode)
+  // Local: No echo, no line-buffering (Canonical mode)
   raw.c_lflag &= ~(ECHO | ECHOE | ECHOK | ECHONL | ICANON | ISIG | IEXTEN);
 
-  // 4. Control: 8-bit characters
+  // Control: 8-bit characters
   raw.c_cflag |= (CS8);
 
-  // 5. Read behavior: Wait for at least 1 character
+  // Read behavior: Wait for at least 1 character
   raw.c_cc[VMIN] = 1;
   raw.c_cc[VTIME] = 0;
 
@@ -2572,9 +2566,16 @@ void vi_main(char *filename, int width, int height) {
   int utf8_dec_p = 0, vi_buf_pos = 0;
   FILE *script = TT.s ? xfopen(TT.s, "r") : 0;
 
-  TT.il = xzalloc(sizeof(struct str_line));
-  TT.il->data = xzalloc(TT.il->alloc = 40);
-  TT.yank.data = xzalloc(TT.yank.alloc = 128);
+  TT.il = m_new_obj(struct str_line);
+
+  if (TT.il) {
+    memset(TT.il, 0, sizeof(struct str_line));
+    TT.il->alloc = 40;
+    TT.il->data = m_new0(char, TT.il->alloc);
+  }
+
+  TT.yank.alloc = 128;
+  TT.yank.data = m_new0(char, TT.yank.alloc);
 
   TT.filename = filename;
   linelist_load(0, 1);
@@ -2796,7 +2797,24 @@ void vi_main(char *filename, int width, int height) {
   }
 cleanup_vi:
   linelist_unload();
-  free(TT.il->data), free(TT.il), free(TT.yank.data);
+
+  // Clear the input buffer and yank (clipboard) buffer
+  // These must use m_free to match our GC-safe allocations
+  if (TT.il) {
+    if (TT.il->data)
+      m_free(TT.il->data);
+    m_free(TT.il);
+    TT.il = NULL;
+  }
+
+  if (TT.yank.data) {
+    m_free(TT.yank.data);
+    TT.yank.data = NULL;
+  }
+
+  // Restore terminal state
   tty_reset();
+
+  // Switch back from the alternate screen buffer
   xputsn("\e[?1049l");
 }
