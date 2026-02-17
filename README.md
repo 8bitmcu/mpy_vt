@@ -1,6 +1,11 @@
 # mpy_vt: Optimized ANSI Terminal Engine for MicroPython
 
-This project implements a high-performance, attribute-aware terminal emulator for MicroPython. By wrapping the [st](https://st.suckless.org/) (suckless terminal) engine in a custom C module, it achieves desktop-class terminal features on embedded hardware.
+This project implements a high-performance, attribute-aware terminal emulator for MicroPython. By wrapping the [st](https://st.suckless.org/) (suckless terminal) engine in a custom C module, it achieves desktop-class terminal features on embedded hardware, including a **zero-allocation status bar** for real-time telemetry without heap fragmentation. Unlike basic serial monitors, it handles complex escape sequences, colors, and text attributes with the efficiency and speed characteristic of suckless software.
+
+This project now features first-class support for the **LILYGO T-Deck**, transforming it into a standalone portable terminal. The integration leverages the T-Deck’s hardware keyboard, trackball and 320x240 display, utilizing the ESP32-S3's PSRAM to manage the terminal's backbuffer and state.
+
+As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the `vi` **text editor**. Furthermore, it provides a Python-based **Telnet client**, demonstrating how the terminal engine can be easily extended to create networked applications.
+
 
 ![animation](screen.gif)
 
@@ -17,7 +22,7 @@ Unlike standard display drivers that refresh the entire screen for every charact
 * **Selective Redrawing:** Only modified rows are sent over SPI. Typing a single character updates only **1/20th** (or less) of the screen.
 * **Atomic Windowing:** Uses hardware-level address windowing (`CASET`/`RASET`) to update specific horizontal slices, significantly reducing bus contention.
 
-## **Zero-Allocation Status Bar**
+### **Zero-Allocation Status Bar**
 * **Zero Memory Fragmentation**: The status bar's memory usage is a "flat line." It never grows, and it never needs to be cleaned up.
 * **Zero Latency Jitter**: Since the Garbage Collector isn't triggered by the status bar, your UI stays consistently responsive. No "stuttering" every 30 seconds.
 * **Native ANSI Rendering**: ANSI escape sequences are embedded directly into the bytearray at initialization. The C engine treats the entire bar as a single, pre-styled memory block, allowing for instant, flicker-free UI updates with zero overhead for color or positioning logic.
@@ -25,20 +30,17 @@ Unlike standard display drivers that refresh the entire screen for every charact
 
 ## 🧩 Modules
 
-This project is composed of five specialized modules that work in tandem to create a full system console.
+This project is composed of six specialized modules that works in tandem:
 
 | Module | Role | Stream Type | Description |
 | :---   | :--- | :--- | :--- |
 | `st7789` | Display Driver | N/A | Modified version of the standard driver. Exposes internal frame buffer pointers to vt for direct-memory access (DMA) rendering. |
-| `vt` | Terminal Engine | Writable | "The core emulator. Receives ANSI text, updates internal state, and renders changes to the st7789 display." |
+| `vt` | Terminal Engine | Writable | The core emulator. Receives ANSI text, updates internal state, and renders changes to the st7789 display. |
 | `tdeck_kbd` | Input Driver | Readable | Low-level driver for the T-Deck I2C keyboard/trackball. Handles key scanning and interrupt flags. |
 | `tdeck_trk` | Motion Engine | Interrupts | Low-level driver for the T-Deck trackball. Uses GPIO interrupts to track relative motion (deltas) and supports edge-detection for short/long click durations. |
-| `tdeck_kvm` | Stream Glue | Read/Write | "A composite Keyboard-Video-Mouse (trackball) object. It binds vt (Output) and tdeck_kbd (Input) into a single stream object compatible with os.dupterm." |
+| `tdeck_kvm` | Stream Glue | Read/Write | A composite Keyboard-Video-Mouse (trackball) object. It binds vt (Output) and tdeck_kbd (Input) into a single stream object compatible with os.dupterm. |
+| `vi` | Text Editor | Read/Write | A C-integrated port of the classic `vi` editor. |
 
-
-## 📟 Supported Hardware: LILYGO T-Deck
-
-This project includes a tuned configuration specifically for the LILYGO T-Deck, optimizing for its unique hardware layout and memory capabilities.
 
 
 ## 🔌 MicroPython REPL Integration
@@ -157,7 +159,14 @@ refresh_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=refresh_loop
 | **`inject()`** | `data` | **Macro Injection.** Accepts a string or bytes and places them into the high-priority ring buffer to be read by the REPL or active application. |
 | **`ioctl()`** | `cmd, arg` | Aggregates status from both objects (e.g., checks if KBD has data or if VT is ready). |
 
-### **5. `st7789` (Modified Display Driver)**
+### **5. `vi.Vi` (Text Editor)**
+*Port of the classic `vi` text-editor.*
+
+| Method | Parameters | Description |
+| :--- | :--- | :--- |
+| **`Vi()`** | `filename, stream, cols, rows` | **Constructor.** Launches the vi editor, opening a given filename, using `stream` for input/outputs. |
+
+### **6. `st7789` (Modified Display Driver)**
 *Standard display driver with specific C-layer extensions for terminal performance.*
 
 | Feature | Type | Description |
@@ -170,7 +179,9 @@ This project is licensed under the **MIT License**.
 
 ### Third-Party Components:
 * **st License:** MIT (c) st engineers.
-* **st7789_mpy:** (c) Russ Hughes. [MIT License]
+* **st7789_mpy:** (c) Russ Hughes. MIT License
+* **vi** (Toybox): (c) Rob Landley, Jarno Mäkipää. 0BSD License (Zero-Clause BSD).
+* **MicroPython**: (c) Damien P. George. MIT License.
 
 ### Fonts & Assets:
 * **Terminus Font:** (c) 2020 Dimitar Zhekov. Licensed under the [SIL Open Font License 1.1](https://scripts.sil.org/OFL).

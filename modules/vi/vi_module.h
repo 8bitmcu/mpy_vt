@@ -1,7 +1,11 @@
-
-
 #ifndef VI_MODULE_H
 #define VI_MODULE_H
+
+#include <stdint.h>
+#include "py/obj.h"
+#include "py/stream.h"
+
+
 
 typedef struct _vi_vi_obj_t {
   mp_obj_base_t base;

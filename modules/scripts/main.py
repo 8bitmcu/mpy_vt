@@ -7,6 +7,7 @@ import tdeck_kbd
 import tdeck_trk
 import tdeck_kvm
 import os
+import esp32
 import network
 import sys
 import time
@@ -113,8 +114,6 @@ statusbar_timer = machine.Timer(1)
 statusbar_timer.init(period=1000, mode=machine.Timer.PERIODIC, callback=slow_loop)
 
 
-
-
 # Choose your cursor:
 
 # Beam Cursor
@@ -134,7 +133,12 @@ sys.ps2 = "\033[1;37m. \033[0m"
 
 
 
+#with open("test.md", "w") as f:
+#    f.write("Hello, T-Deck!\n")
+#    f.write("This text is now saved.")
 
+#import vi
+#vi.Vi("test.md", kvm)
 
 
 

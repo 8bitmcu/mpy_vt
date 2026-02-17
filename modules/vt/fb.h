@@ -1,6 +1,6 @@
 /*
  * MicroPython ANSI Terminal Wrapper
- * Copyright (c) 2026 8bitmcu
+ * Copyright (c) 2026 Vincent (8bitmcu)
  * * Based on the st (Suckless Terminal) engine.
  * Original code (c) st engineers.
  * License: MIT

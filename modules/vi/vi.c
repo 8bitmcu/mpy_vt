@@ -2,8 +2,10 @@
  *
  * Copyright 2015 Rob Landley <rob@landley.net>
  * Copyright 2019 Jarno Mäkipää <jmakip87@gmail.com>
+ * Copyright 2026 Vincent (8bitmcu) (MicroPython/VFS Port)
  *
  * See http://pubs.opengroup.org/onlinepubs/9699919799/utilities/vi.html
+ * Licensed under 0BSD.
  */
 
 #include <errno.h>
@@ -16,19 +18,18 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include "extmod/vfs.h"
 #include "py/misc.h"
 #include "py/mpconfig.h"
 #include "py/mphal.h"
 #include "py/obj.h"
 #include "py/runtime.h"
 #include "py/stream.h"
-
-#include "py/mphal.h"
+#include "py/gc.h"
 
 #include "vi_module.h"
 
 extern vi_vi_obj_t *current_vi_instance;
-
 
 #define FOR_vi
 #define CTL(a) a - '@'
@@ -60,7 +61,7 @@ extern vi_vi_obj_t *current_vi_instance;
 #endif
 
 #define PROT_READ 0x1    // Page can be read
-#define PROT_WRITE 0x2   // Page can be written (you might need this too)
+#define PROT_WRITE 0x2   // Page can be written
 #define MAP_SHARED 0x01  // Share changes
 #define MAP_PRIVATE 0x02 // Changes are private
 
@@ -143,6 +144,142 @@ struct double_list {
 static const char *blank = " \n\r\t";
 static const char *specials = ",.:;=-+*/(){}<>[]!@#$%^&|\\?\"\'";
 
+static inline FILE *vfs_fopen(const char *path, const char *mode) {
+  // 1. Convert C strings to MicroPython Objects
+  mp_obj_t path_obj = mp_obj_new_str(path, strlen(path));
+  mp_obj_t mode_obj = mp_obj_new_str(mode, strlen(mode));
+
+  // 2. Look up the standard 'open' function that Python uses
+  // This function knows all about the /flash mount point
+  mp_obj_t open_fn = mp_load_global(MP_QSTR_open);
+
+  // 3. Call it: open(path, mode)
+  nlr_buf_t nlr;
+  if (nlr_push(&nlr) == 0) {
+    mp_obj_t file_obj =
+        mp_call_function_n_kw(open_fn, 2, 0, (mp_obj_t[]){path_obj, mode_obj});
+    nlr_pop();
+    return (FILE *)file_obj; // Success: Return the object pointer as our "fd"
+  } else {
+    // If Python threw an exception (like ENOENT), we catch it here
+    return NULL;
+  }
+}
+
+static inline int vfs_open(const char *path, const char *mode) {
+  // 1. Convert C strings to MicroPython Objects
+  mp_obj_t path_obj = mp_obj_new_str(path, strlen(path));
+  mp_obj_t mode_obj = mp_obj_new_str(mode, strlen(mode));
+
+  // 2. Look up the standard 'open' function that Python uses
+  // This function knows all about the /flash mount point
+  mp_obj_t open_fn = mp_load_global(MP_QSTR_open);
+
+  // 3. Call it: open(path, mode)
+  nlr_buf_t nlr;
+  if (nlr_push(&nlr) == 0) {
+    mp_obj_t file_obj =
+        mp_call_function_n_kw(open_fn, 2, 0, (mp_obj_t[]){path_obj, mode_obj});
+    nlr_pop();
+    return (int)file_obj; // Success: Return the object pointer as our "fd"
+  } else {
+    // If Python threw an exception (like ENOENT), we catch it here
+    return -1;
+  }
+}
+
+static inline int vfs_close(int fd) {
+  mp_obj_t file = (mp_obj_t)fd;
+  mp_obj_t dest[2];
+  mp_load_method(file, MP_QSTR_close, dest);
+  mp_call_method_n_kw(0, 0, dest);
+  return 0;
+}
+
+static inline int vfs_fclose(FILE *stream) {
+  mp_obj_t file = (mp_obj_t)stream;
+  mp_obj_t dest[2];
+  mp_load_method(file, MP_QSTR_close, dest);
+  mp_call_method_n_kw(0, 0, dest);
+  return 0;
+}
+
+// Helper to call close() on a MicroPython file object
+void vfs_close_obj(mp_obj_t file_obj) {
+  mp_obj_t dest[2];
+  mp_load_method(file_obj, MP_QSTR_close, dest);
+  mp_call_method_n_kw(0, 0, dest);
+}
+
+// Helper to call rename in MicroPython VFS
+int vfs_rename(const char *old, const char *new) {
+  nlr_buf_t nlr;
+  if (nlr_push(&nlr) == 0) {
+    mp_vfs_rename(mp_obj_new_str(old, strlen(old)),
+                  mp_obj_new_str(new, strlen(new)));
+    nlr_pop();
+    return 0;
+  }
+  return -1;
+}
+
+static inline void vfs_remove(const char *path) {
+  nlr_buf_t nlr;
+  if (nlr_push(&nlr) == 0) {
+    mp_vfs_remove(mp_obj_new_str(path, strlen(path)));
+    nlr_pop();
+  }
+}
+
+static inline int vfs_write(int fd, const void *buf, size_t n) {
+  mp_obj_t file_obj =
+      (mp_obj_t)fd; // Cast our "fd" back to a MicroPython Object
+  int errcode;
+
+  // Get the stream protocol from the file object
+  const mp_stream_p_t *stream_p =
+      mp_get_stream_raise(file_obj, MP_STREAM_OP_WRITE);
+
+  // Perform the write
+  mp_uint_t n_written = stream_p->write(file_obj, buf, n, &errcode);
+
+  if (n_written == (mp_uint_t)-1)
+    return -1;
+  return (int)n_written;
+}
+
+// Replacement for fdlength that works with MicroPython objects
+long long vfs_fdlength(int fd) {
+  mp_obj_t file_obj = (mp_obj_t)fd;
+  mp_obj_t dest[2];
+
+  // 1. Seek to the end (offset 0 from SEEK_END which is 2)
+  mp_load_method(file_obj, MP_QSTR_seek, dest);
+  mp_call_method_n_kw(
+      2, 0,
+      (mp_obj_t[]){dest[0], dest[1], mp_obj_new_int(0), mp_obj_new_int(2)});
+
+  // 2. Tell gives us the current position (the end)
+  mp_load_method(file_obj, MP_QSTR_tell, dest);
+  mp_obj_t size_obj = mp_call_method_n_kw(0, 0, dest);
+
+  // 3. Convert Python Object to C long long
+  long long length = (long long)mp_obj_get_int(size_obj);
+
+  // 4. Seek back to the beginning (SEEK_SET is 0)
+  mp_load_method(file_obj, MP_QSTR_seek, dest);
+  mp_call_method_n_kw(1, 0, (mp_obj_t[]){dest[0], dest[1], mp_obj_new_int(0)});
+
+  return length;
+}
+
+static inline int vfs_read(int fd, void *buf, size_t n) {
+  int errcode;
+  const mp_stream_p_t *stream_p =
+      mp_get_stream_raise((mp_obj_t)fd, MP_STREAM_OP_READ);
+  return (int)stream_p->read((mp_obj_t)fd, buf, n, &errcode);
+}
+
 int xprintf(const char *format, ...) {
   va_list args;
   va_start(args, format);
@@ -207,17 +344,12 @@ ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
 
 // Die unless we can open/create a file, returning FILE *.
 FILE *xfopen(char *path, char *mode) {
-  FILE *f = fopen(path, mode);
+  FILE *f = vfs_fopen(path, mode);
   if (!f) {
     // We use mp_raise_msg to pass control back to the MicroPython REPL
     error_exit("xopen");
   }
   return f;
-}
-
-void xclose(int fd) {
-  if (fd != -1 && close(fd))
-    error_exit("xclose");
 }
 
 off_t fdlength(int fd) {
@@ -244,7 +376,7 @@ ssize_t writeall(int fd, void *buf, size_t len) {
   size_t count = 0;
 
   while (count < len) {
-    int i = write(fd, count + (char *)buf, len - count);
+    int i = vfs_write(fd, count + (char *)buf, len - count);
     if (i < 1)
       return i;
     count += i;
@@ -416,28 +548,6 @@ int crunch_escape(FILE *out, int cols, int wc) {
   return rc;
 }
 
-void *xmmap(void *addr, size_t length, int prot, int flags, int fd, off_t off) {
-  void *ret = m_malloc(length);
-
-  if (ret == NULL) {
-    // Wrap the string in MP_ERROR_TEXT
-    mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("vi: xmmap failed"));
-  }
-
-  lseek(fd, off, SEEK_SET);
-
-  ssize_t bytes_read = read(fd, ret, length);
-
-  if (bytes_read < 0) {
-    m_free(ret);
-    // Wrap the string in MP_ERROR_TEXT
-    mp_raise_msg(&mp_type_OSError,
-                 MP_ERROR_TEXT("vi: read failed during xmmap"));
-  }
-
-  return ret;
-}
-
 // Return line of text from file.
 char *xgetdelim(FILE *fp, int delim) {
   char *new = 0;
@@ -509,7 +619,6 @@ void xsetspeed(struct termios *tio, int bps) {
 
 void xputsl(char *s, int len) {
   mp_hal_stdout_tx_strn(s, 1);
-  mp_hal_delay_ms(1);
   xferror(stdout);
 }
 
@@ -762,37 +871,19 @@ int scan_key_getsize(char *scratch, int timeout_ms, unsigned *xx,
     uint32_t start = mp_hal_ticks_ms();
     int c = -1;
 
-    // Assuming c is initialized to -1 and start is initialized to
-    // mp_hal_ticks_ms()
     while (c == -1) {
       uint8_t byte;
       int errcode;
 
-      // 1. Use the cached stream protocol from your 'self' object
-      // current_vi_instance must point to the 'self' created in make_new
       mp_uint_t n = current_vi_instance->stream_p->read(
           current_vi_instance->stream_obj, &byte, 1, &errcode);
 
-      // 2. Check if a byte was actually read
       if (n != (mp_uint_t)-1 && n > 0) {
         c = byte;
-
-        // DEBUG: Echo using the stream's write method to keep everything on one
-        // "pipe"
-        char debug[32];
-        int debug_len = snprintf(debug, sizeof(debug), "[STRM:%d]", c);
-
-        int write_err;
-        current_vi_instance->stream_p->write(current_vi_instance->stream_obj,
-                                             debug, debug_len, &write_err);
       } else {
-        // 3. Handle Timeouts
         if (wait_ms != -1 && (mp_hal_ticks_ms() - start) > (uint32_t)wait_ms) {
           goto break_loop;
         }
-
-        // 4. Critical: Keep the T-Deck responsive
-        // This allows the Trackball ISR to process the "Long Press" for Ctrl+C
         mp_handle_pending(true);
         mp_hal_delay_ms(1);
       }
@@ -1318,16 +1409,30 @@ static void show_error(char *fmt, ...) {
   va_list va;
 
   xprintf("\a\e[%dH\e[41m\e[37m\e[K\e[1m", TT.screen_height + 1);
-  va_start(va, fmt);
-  vprintf(fmt, va);
-  va_end(va);
-  xprintf("\e[0m");
-  mp_hal_delay_ms(1);
-  xferror(stdout);
 
-  // TODO: better integration with status line: keep
-  // message until next operation.
-  (void)getchar();
+  va_start(va, fmt);
+  mp_vprintf(&mp_plat_print, fmt, va);
+  va_end(va);
+
+  xprintf("\e[0m");
+
+  mp_hal_stdout_tx_strn("\r", 1);
+
+  // Now wait for the key
+  int c = -1;
+  while (c == -1) {
+    uint8_t byte;
+    int errcode;
+    mp_uint_t n = current_vi_instance->stream_p->read(
+        current_vi_instance->stream_obj, &byte, 1, &errcode);
+
+    if (n != (mp_uint_t)-1 && n > 0) {
+      c = byte;
+    }
+
+    mp_handle_pending(true);
+    mp_hal_delay_ms(1);
+  }
 }
 
 static void linelist_unload() {
@@ -1343,28 +1448,33 @@ static void linelist_load(char *filename, int ignore_missing) {
   if (!filename)
     filename = TT.filename;
   if (!filename) {
-    // `vi` with no arguments creates a new unnamed file.
     insert_str(vi_xstrdup("\n"), 0, 1, 1, HEAP);
     return;
   }
 
-  fd = open(filename, O_RDONLY);
+  fd = vfs_open(filename, "r");
   if (fd == -1) {
     if (!ignore_missing)
-      show_error("Couldn't open \"%s\" for reading: %s", filename,
-                 strerror(errno));
+      show_error("Couldn't open \"%s\"", filename);
     insert_str(vi_xstrdup("\n"), 0, 1, 1, HEAP);
     return;
   }
 
-  size = fdlength(fd);
+  size = vfs_fdlength(fd); // Use our new size helper
   if (size > 0) {
-    insert_str(xmmap(0, size, PROT_READ, MAP_SHARED, fd, 0), 0, size, size,
-               MMAP);
-    TT.filesize = text_filesize();
-  } else if (!size)
+    // Allocate memory for the file content
+    char *buf = malloc(size);
+    if (buf) {
+      vfs_read(fd, buf, size);
+      // Insert the buffer into vi's slice list
+      insert_str(buf, 0, size, size, HEAP);
+      TT.filesize = text_filesize();
+    }
+  } else if (size == 0) {
     insert_str(vi_xstrdup("\n"), 0, 1, 1, HEAP);
-  xclose(fd);
+  }
+
+  vfs_close_obj((mp_obj_t)fd);
 }
 
 static int write_file(char *filename) {
@@ -1389,7 +1499,7 @@ static int write_file(char *filename) {
 
   sprintf(toybuf, "%s.swp", filename);
 
-  if ((fd = open(toybuf, O_WRONLY | O_CREAT | O_TRUNC, st.st_mode)) == -1) {
+  if ((fd = vfs_open(toybuf, "wb")) == -1) {
     show_error("Couldn't open \"%s\" for writing: %s", toybuf, strerror(errno));
     return -1;
   }
@@ -1401,8 +1511,10 @@ static int write_file(char *filename) {
     } while (s != TT.slices);
   }
 
-  xclose(fd);
-  if (!rename(toybuf, filename)) {
+  vfs_close_obj((mp_obj_t)fd);
+  vfs_remove(filename);
+
+  if (!vfs_rename(toybuf, filename)) {
     linelist_unload();
     linelist_load(filename, 0);
     return 1;
@@ -2398,7 +2510,7 @@ static void draw_page() {
   // Finished updating visual area, show status line.
   xprintf("\e[%u;0H\e[2K", TT.screen_height + 1);
   if (TT.vi_mode == 1)
-    xprintf("\e[1mNORMAL\e[m");
+    xprintf("\e[1mNORMAL\e[m %s", TT.filename);
   if (TT.vi_mode == 2)
     xprintf("\e[1mINSERT\e[m");
   if (!TT.vi_mode) {
@@ -2408,16 +2520,16 @@ static void draw_page() {
   } else {
     // TODO: the row,col display doesn't show the cursor column
     // TODO: real vi shows the percentage by lines, not bytes
-    sprintf(toybuf, "%zu/%zuC  %zu%%  %d,%d", TT.cursor, TT.filesize,
-            (100 * TT.cursor) / (TT.filesize ?: 1), TT.cur_row + 1,
-            TT.cur_col + 1);
+    sprintf(toybuf, "%lu/%luC %lu%% %d,%d", (unsigned long)TT.cursor,
+            (unsigned long)TT.filesize,
+            (unsigned long)(100 * TT.cursor) / (TT.filesize ?: 1),
+            TT.cur_row + 1, TT.cur_col + 1);
     if (TT.cur_col != cx_scr)
       sprintf(toybuf + strlen(toybuf), "-%d", cx_scr + 1);
   }
   xprintf("\e[%u;%uH%s\e[%u;%uH", TT.screen_height + 1,
           (int)(1 + TT.screen_width - strlen(toybuf)), toybuf, cy_scr + 1,
           cx_scr + 1);
-  mp_hal_delay_ms(1);
   xferror(stdout);
 }
 
@@ -2479,7 +2591,6 @@ void vi_main(char *filename, int width, int height) {
   xputsn("\e[?1049h");
 
   xprintf("\x1b[4l"); // Disable IRM (Insert Replacement Mode)
-  mp_hal_delay_ms(1);
 
   if (TT.c) {
     FILE *cc = xfopen(TT.c, "r");
@@ -2488,7 +2599,7 @@ void vi_main(char *filename, int width, int height) {
     while ((line = xgetline(cc)))
       if (run_ex_cmd(TT.il->data))
         goto cleanup_vi;
-    fclose(cc);
+    vfs_fclose(cc);
   }
 
   mp_hal_stdout_tx_strn("\e[2J\e[H", 7);
@@ -2497,17 +2608,18 @@ void vi_main(char *filename, int width, int height) {
     int key = 0;
 
     draw_page();
+
+    mp_handle_pending(true);
     mp_hal_delay_ms(1);
 
     // TODO script should handle cursor keys
     if (script && EOF == (key = fgetc(script))) {
-      fclose(script);
+      vfs_fclose(script);
       script = 0;
     }
     if (!script)
       key = scan_key(keybuf, -1);
 
-    mp_hal_stdout_tx_strn("hi", 2);
     if (key == -1)
       goto cleanup_vi;
     else if (key == -3) {
