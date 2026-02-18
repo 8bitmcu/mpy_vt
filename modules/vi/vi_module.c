@@ -18,19 +18,19 @@ static mp_obj_t vi_vi_make_new(const mp_obj_type_t *type, size_t n_args,
   vi_vi_obj_t *self = m_new_obj(vi_vi_obj_t);
   self->base.type = type;
 
-  // 1. Handle Filename
+  // Handle Filename
   if (!mp_obj_is_str(args[0])) {
     mp_raise_TypeError(MP_ERROR_TEXT("Filename must be a string"));
   }
   // Copy the string into the MP heap so it is safe during the vi session
   const char *fname = mp_obj_str_get_str(args[0]);
 
-  // 2. Handle Stream (e.g., KVM object)
+  // Handle Stream (e.g., KVM object)
   self->stream_obj = args[1];
   self->stream_p = mp_get_stream_raise(self->stream_obj,
                                        MP_STREAM_OP_READ | MP_STREAM_OP_WRITE);
 
-  // 3. Handle Dimensions
+  // Handle Dimensions
   int tw = 40, th = 16;
   self->width = (n_args > 2) ? mp_obj_get_int(args[2]) : tw;
   self->height = (n_args > 3) ? mp_obj_get_int(args[3]) : th;
@@ -41,6 +41,10 @@ static mp_obj_t vi_vi_make_new(const mp_obj_type_t *type, size_t n_args,
   nlr_buf_t nlr;
   if (nlr_push(&nlr) == 0) {
     // Launch Toybox vi_main
+    vi_init();
+    volatile mp_obj_t keep_alive = vi_state_obj;
+    volatile struct vi_data *keep_ptr = ptrTT;
+
     vi_main((char *)fname, self->width, self->height);
 
     // Clean up global pointer after exit

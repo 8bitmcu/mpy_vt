@@ -132,22 +132,22 @@ sys.ps1 = "\033[1;37m$ \033[0m"
 sys.ps2 = "\033[1;37m. \033[0m"
 
 
-
-#with open("test.md", "w") as f:
-#    f.write("Hello, T-Deck!\n")
-#    f.write("This text is now saved.")
-
-#import vi
-#vi.Vi("test.md", kvm)
-
-
-
 class Command:
     def __init__(self, func):
         self.func = func
     def __repr__(self):
         self.func()
         return ""
+
+def vi_example():
+    with open("test.md", "w") as f:
+        f.write("Hello, T-Deck!\n")
+        f.write("This text is now saved\n")
+
+    import vi as _vi
+    _vi.Vi("test.md", kvm, cols, rows)
+
+vi = Command(vi_example)
 
 def check_leaks():
     import gc
@@ -235,5 +235,5 @@ def cbbs():
 
 
 
-# type wifi() to connect to wifi
+# type wlan to connect to wifi
 # type telehack() for telnet telehack

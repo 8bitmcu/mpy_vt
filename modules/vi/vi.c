@@ -27,11 +27,11 @@
 #include "py/runtime.h"
 #include "py/stream.h"
 
+#include "vi.h"
 #include "vi_module.h"
 
 extern vi_vi_obj_t *current_vi_instance;
 
-#define FOR_vi
 #define CTL(a) a - '@'
 #define KEY_UP 0
 #define KEY_DOWN 1
@@ -59,82 +59,6 @@ extern vi_vi_obj_t *current_vi_instance;
 #ifndef ECHOKE
 #define ECHOKE 0x00000800
 #endif
-
-#define PROT_READ 0x1    // Page can be read
-#define PROT_WRITE 0x2   // Page can be written
-#define MAP_SHARED 0x01  // Share changes
-#define MAP_PRIVATE 0x02 // Changes are private
-
-#define REG_EXTENDED 0
-#define REG_ICASE 1
-#define REG_NOMATCH 1
-
-typedef struct {
-  int dummy;
-} regex_t;
-
-// TODO implement these
-inline int regcomp(regex_t *preg, const char *regex, int cflags) { return 0; }
-inline int regexec(const regex_t *preg, const char *string, size_t nmatch,
-                   void *pmatch, int eflags) {
-  return REG_NOMATCH;
-}
-inline void regfree(regex_t *preg) {}
-
-char toybuf[4096];
-
-struct vi_data {
-  char *c, *s;
-  char *filename;
-  int vi_mode, tabstop, list, cur_col, cur_row, scr_row, drawn_row, drawn_col,
-      count0, count1, vi_mov_flag, vi_exit;
-  unsigned screen_height, screen_width;
-  char vi_reg, *last_search;
-
-  struct str_line {
-    int alloc, len;
-    char *data;
-  } *il;
-
-  size_t screen, cursor;
-
-  struct yank_buf {
-    char reg;
-    int alloc;
-    char *data;
-  } yank;
-
-  size_t filesize;
-  struct block_list {
-    struct block_list *next, *prev;
-    struct mem_block {
-      size_t size, len;
-      enum alloc_flag { MMAP, HEAP, STACK } alloc;
-      const char *data;
-    } *node;
-  } *text;
-
-  struct slice_list {
-    struct slice_list *next, *prev;
-    struct slice {
-      size_t len;
-      const char *data;
-    } *node;
-  } *slices;
-};
-
-struct vi_data TT;
-
-struct winsize {
-  unsigned short ws_row;    // Number of rows (lines)
-  unsigned short ws_col;    // Number of columns (chars)
-  unsigned short ws_xpixel; // Horizontal size, pixels (usually ignored)
-  unsigned short ws_ypixel; // Vertical size, pixels (usually ignored)
-};
-
-struct toys_shim {
-  int signal;
-} toys = {0};
 
 struct double_list {
   struct double_list *next, *prev;
@@ -273,11 +197,18 @@ static inline int vfs_read(int fd, void *buf, size_t n) {
 int xprintf(const char *format, ...) {
   va_list args;
   va_start(args, format);
-  char buf[256];
-  int len = vsnprintf(buf, sizeof(buf), format, args);
+
+  vstr_t vstr;
+  vstr_init(&vstr, 64);
+  vstr_vprintf(&vstr, format, args);
   va_end(args);
-  if (len > 0)
-    mp_hal_stdout_tx_strn(buf, len);
+
+  if (vstr.len > 0) {
+    mp_hal_stdout_tx_strn(vstr.buf, vstr.len);
+  }
+
+  int len = vstr.len;
+  vstr_clear(&vstr);
   return len;
 }
 
@@ -553,43 +484,55 @@ char *xgetline(FILE *fp) {
 void xputsl(char *s, int len) { mp_hal_stdout_tx_strn(s, 1); }
 
 // Append to list in-order (*list unchanged unless empty, ->prev is new node)
-void dlist_add_nomalloc(struct double_list **list, struct double_list *new) {
+// Add a pre-allocated entry to a doubly linked list
+void dlist_add_nomalloc(struct double_list **list,
+                        struct double_list *new_node) {
   if (*list) {
-    new->next = *list;
-    new->prev = (*list)->prev;
-    (*list)->prev->next = new;
-    (*list)->prev = new;
-  } else
-    *list = new->next = new->prev = new;
+    new_node->next = *list;
+    new_node->prev = (*list)->prev;
+    (*list)->prev->next = new_node;
+    (*list)->prev = new_node;
+  } else {
+    *list = new_node->next = new_node->prev = new_node;
+  }
 }
 
-// Add an entry to the end of a doubly linked list
-struct double_list *dlist_add(struct double_list **list, char *data) {
-  struct double_list *new = vi_xmalloc(sizeof(struct double_list));
+// Create and add a new entry using the MicroPython Heap
+struct double_list *dlist_add(struct double_list **list, void *data) {
+  // Use m_new_obj to ensure the GC sees this list node
+  struct double_list *new_node = m_new_obj(struct double_list);
 
-  new->data = data;
-  dlist_add_nomalloc(list, new);
+  new_node->data = (char *)data;
+  dlist_add_nomalloc(list, new_node);
 
-  return new;
+  return new_node;
 }
 
 // Remove first item from &list and return it
-void *dlist_pop(void *list) {
-  struct double_list **pdlist = (struct double_list **)list, *dlist = *pdlist;
+// Remove first item from &list and return it
+void *dlist_pop(void *list_ptr) {
+  struct double_list **head_ptr = (struct double_list **)list_ptr;
+  struct double_list *to_remove = *head_ptr;
 
-  if (!dlist)
-    return 0;
-  if (dlist->next == dlist)
-    *pdlist = 0;
-  else {
-    if (dlist->next)
-      dlist->next->prev = dlist->prev;
-    if (dlist->prev)
-      dlist->prev->next = dlist->next;
-    *pdlist = dlist->next;
+  if (!to_remove)
+    return NULL; // Correctly returns NULL if list is empty
+
+  if (to_remove->next == to_remove) {
+    // Only one element in the list
+    *head_ptr = NULL;
+  } else {
+    // Standard circular removal
+    to_remove->prev->next = to_remove->next;
+    to_remove->next->prev = to_remove->prev;
+
+    // Ensure the head pointer moves to the next valid node
+    *head_ptr = to_remove->next;
   }
 
-  return dlist;
+  // Isolate the popped node so it doesn't point back to the live list
+  to_remove->next = to_remove->prev = to_remove;
+
+  return to_remove;
 }
 
 // Return the first item from the list, advancing the list (which must be called
@@ -623,6 +566,22 @@ void llist_free_double(void *node) {
   }
 }
 
+void slice_list_free(struct slice_list **list_head) {
+  if (!list_head || !*list_head)
+    return;
+  struct slice_list *head = *list_head;
+  struct slice_list *curr = head;
+  do {
+    struct slice_list *next = curr->next;
+    // Free the slice metadata (node)
+    // (Note: we don't free node->data here because it's owned by block_list!)
+    m_free(curr->node);
+    m_free(curr);
+    curr = next;
+  } while (curr != head);
+  *list_head = NULL;
+}
+
 // Call a function (such as free()) on each element of a linked list.
 void llist_traverse(void *list, void (*using)(void *node)) {
   void *old = list;
@@ -635,12 +594,6 @@ void llist_traverse(void *list, void (*using)(void *node)) {
     if (old == list)
       break;
   }
-}
-
-int munmap(void *addr, size_t length) {
-  // On ESP32, if we mapped something to HEAP, we should have used free().
-  // If ToyBox calls munmap on a HEAP pointer, that's a bug in our port.
-  return 0;
 }
 
 // Die unless we can allocate a copy of this string.
@@ -749,8 +702,7 @@ struct scan_key_list {
 // Scratch space is necessary because last char of !seq could start new seq.
 // Zero out first byte of scratch before first call to scan_key.
 
-int scan_key_getsize(char *scratch, int timeout_ms, unsigned *xx,
-                     unsigned *yy) {
+int scan_key_getsize(char *scratch) {
   int maybe, i, j;
   char *test;
 
@@ -768,10 +720,6 @@ int scan_key_getsize(char *scratch, int timeout_ms, unsigned *xx,
 
       if (pos[5] > 0) {
         *scratch = 0;
-        if (xx)
-          *xx = x;
-        if (yy)
-          *yy = y;
         return -3;
       } else {
         for (i = 0; i < 6; i++) {
@@ -799,7 +747,7 @@ int scan_key_getsize(char *scratch, int timeout_ms, unsigned *xx,
         break;
     }
 
-    int wait_ms = maybe ? 30 : timeout_ms;
+    int wait_ms = maybe ? 30 : -1;
     uint32_t start = mp_hal_ticks_ms();
     int c = -1;
 
@@ -816,8 +764,8 @@ int scan_key_getsize(char *scratch, int timeout_ms, unsigned *xx,
         if (wait_ms != -1 && (mp_hal_ticks_ms() - start) > (uint32_t)wait_ms) {
           goto break_loop;
         }
-        mp_handle_pending(true);
-        mp_hal_delay_ms(1);
+        mp_handle_pending(false);
+        mp_hal_delay_ms(30);
       }
     }
 
@@ -847,37 +795,9 @@ break_loop:
   return key;
 }
 
-// Wrapper that ignores results from ANSI probe to update screensize.
-// Otherwise acts like scan_key_getsize().
-int scan_key(char *scratch, int timeout_ms) {
-  return scan_key_getsize(scratch, timeout_ms, NULL, NULL);
-}
-
-void tty_reset(void) {
-  set_terminal(0, 0, 0, 0);
-  xputsn("\e[?25h\e[0m\e[999H\e[K");
-}
-
-// If you call set_terminal(), use sigatexit(tty_sigreset);
-void tty_sigreset(int i) {
-  tty_reset();
-  _exit(i ? 128 + i : 0);
-}
-
-void start_redraw(unsigned *width, unsigned *height) {
-  // TODO
-  *width = 40;
-  *height = 16;
-
-  TT.screen_width = *width;
-  TT.screen_height = *height - 1;
-
-  xputsn("\e[H\e[J");
-}
-
-///////////////////////
+////////////////////////
 // ACTUAL VI CODE //////
-// /////////////////////
+////////////////////////
 
 // get utf8 length and width at same time
 static int utf8_lnw(int *width, char *s, int bytes) {
@@ -936,30 +856,33 @@ static char *utf8_last(char *str, int size) {
   return 0;
 }
 
-struct double_list *dlist_add_before(struct double_list **head,
-                                     struct double_list **list, char *data) {
-  struct double_list *new = vi_xmalloc(sizeof(struct double_list));
-  new->data = data;
-  if (*list == *head)
-    *head = new;
-
-  dlist_add_nomalloc(list, new);
-  return new;
-}
-
 struct double_list *dlist_add_after(struct double_list **head,
                                     struct double_list **list, char *data) {
-  struct double_list *new = vi_xmalloc(sizeof(struct double_list));
-  new->data = data;
+  struct double_list *new_n = m_new_obj(struct double_list);
+  new_n->data = data;
 
-  if (*list) {
-    new->prev = *list;
-    new->next = (*list)->next;
-    (*list)->next->prev = new;
-    (*list)->next = new;
-  } else
-    *head = *list = new->next = new->prev = new;
-  return new;
+  if (list && *list) {
+    new_n->next = (*list)->next;
+    new_n->prev = *list;
+    new_n->next->prev = new_n;
+    (*list)->next = new_n;
+  } else {
+    new_n->next = new_n->prev = new_n;
+    if (head)
+      *head = new_n;
+    if (list)
+      *list = new_n;
+  }
+  return new_n;
+}
+
+struct double_list *dlist_add_before(struct double_list **head,
+                                     struct double_list **list, char *data) {
+  struct double_list *ins_pos = (*list)->prev;
+  struct double_list *new_n = dlist_add_after(head, &ins_pos, data);
+  if (*list == *head)
+    *head = new_n;
+  return new_n;
 }
 
 // str must be already allocated
@@ -971,171 +894,197 @@ struct double_list *dlist_add_after(struct double_list **head,
 // type, define allocation type for cleanup purposes at app exit
 static int insert_str(const char *data, size_t offset, size_t size, size_t len,
                       enum alloc_flag type) {
-  struct mem_block *b = vi_xmalloc(sizeof(struct mem_block));
-  struct slice *next = vi_xmalloc(sizeof(struct slice));
-  struct slice_list *s = TT.slices;
+  if (!data || len == 0)
+    return 0;
 
+  // Physical Layer: Track the actual memory
+  struct mem_block *b = m_new_obj(struct mem_block);
   b->size = size;
   b->len = len;
   b->alloc = type;
   b->data = data;
-  next->len = len;
-  next->data = data;
-
-  // mem blocks can be just added unordered
   TT.text = (struct block_list *)dlist_add((struct double_list **)&TT.text,
                                            (char *)b);
 
+  // Logical Layer: Create the slice
+  struct slice *next_node = m_new_obj(struct slice);
+  next_node->len = len;
+  next_node->data = data;
+
+  struct slice_list *s = TT.slices;
+
+  // Case: First insertion ever
   if (!s) {
     TT.slices = (struct slice_list *)dlist_add(
-        (struct double_list **)&TT.slices, (char *)next);
-  } else {
-    size_t pos = 0;
-    // search insertation point for slice
-    do {
-      if (pos <= offset && pos + s->node->len > offset)
-        break;
-      pos += s->node->len;
-      s = s->next;
-      if (s == TT.slices)
-        return -1; // error out of bounds
-    } while (1);
-    // need to cut previous slice into 2 since insert is in middle
-    if (pos + s->node->len > offset && pos != offset) {
-      struct slice *tail = vi_xmalloc(sizeof(struct slice));
-      tail->len = s->node->len - (offset - pos);
-      tail->data = s->node->data + (offset - pos);
-      s->node->len = offset - pos;
-      // pos = offset;
-      s = (struct slice_list *)dlist_add_after(
-          (struct double_list **)&TT.slices, (struct double_list **)&s,
-          (char *)tail);
-
-      s = (struct slice_list *)dlist_add_before(
-          (struct double_list **)&TT.slices, (struct double_list **)&s,
-          (char *)next);
-    } else if (pos == offset) {
-      // insert before
-      s = (struct slice_list *)dlist_add_before(
-          (struct double_list **)&TT.slices, (struct double_list **)&s,
-          (char *)next);
-    } else {
-      // insert after
-      s = (void *)dlist_add_after((void *)&TT.slices, (void *)&s, (void *)next);
-    }
+        (struct double_list **)&TT.slices, (char *)next_node);
+    TT.filesize += len; // UPDATE SIZE
+    return 0;
   }
+
+  // 3. Find insertion point
+  size_t pos = 0;
+  struct slice_list *head = s;
+  while (offset > pos + s->node->len) {
+    pos += s->node->len;
+    s = s->next;
+    if (s == head)
+      break;
+  }
+
+  // 4. Atomic split/insert
+  if (offset > pos && offset < pos + s->node->len) {
+    struct slice *tail_node = m_new_obj(struct slice);
+    size_t head_len = offset - pos;
+
+    tail_node->len = s->node->len - head_len;
+    tail_node->data = s->node->data + head_len;
+    s->node->len = head_len;
+
+    struct double_list *temp =
+        dlist_add_after((struct double_list **)&TT.slices,
+                        (struct double_list **)&s, (char *)next_node);
+    if (temp)
+      dlist_add_after((struct double_list **)&TT.slices, &temp,
+                      (char *)tail_node);
+
+  } else if (offset == pos) {
+    dlist_add_before((struct double_list **)&TT.slices,
+                     (struct double_list **)&s, (char *)next_node);
+  } else {
+    dlist_add_after((struct double_list **)&TT.slices,
+                    (struct double_list **)&s, (char *)next_node);
+  }
+
+  // CRITICAL FIX: The reason text was invisible but navigable
+  TT.filesize += len;
+
   return 0;
 }
 
 // this will not free any memory
 // will only create more slices depending on position
 static int cut_str(size_t offset, size_t len) {
-  struct slice_list *e, *s = TT.slices;
-  size_t end = offset + len;
-  size_t epos, spos = 0;
+  struct slice_list *s = TT.slices;
+  size_t pos = 0;
 
-  if (!s)
+  if (!s || len == 0)
     return -1;
 
-  // find start and end slices
-  for (;;) {
-    if (spos <= offset && spos + s->node->len > offset)
-      break;
-    spos += s->node->len;
+  // Find start
+  while (offset >= pos + s->node->len) {
+    pos += s->node->len;
     s = s->next;
-
     if (s == TT.slices)
-      return -1; // error out of bounds
+      return -1;
   }
 
-  for (e = s, epos = spos;;) {
-    if (epos <= end && epos + e->node->len > end)
-      break;
-    epos += e->node->len;
-    e = e->next;
+  while (len > 0 && s) {
+    size_t node_start = pos;
+    size_t node_end = pos + s->node->len;
 
-    if (e == TT.slices)
-      return -1; // error out of bounds
-  }
+    if (offset <= node_start && (offset + len) >= node_end) {
+      // Full node removal
+      size_t clip = s->node->len;
 
-  for (;;) {
-    if (spos == offset && (end >= spos + s->node->len)) {
-      // cut full
-      spos += s->node->len;
-      offset += s->node->len;
-      s = dlist_pop(&s);
-      if (s == TT.slices)
-        TT.slices = s->next;
+      // Save whether we are popping the head
+      int is_head = (s == TT.slices);
 
-    } else if (spos < offset && (end >= spos + s->node->len)) {
-      // cut end
-      size_t clip = s->node->len - (offset - spos);
-      offset = spos + s->node->len;
-      spos += s->node->len;
+      // Pass the address of 's' directly.
+      // dlist_pop will update 's' to point to the next node in the circle.
+      struct slice_list *old_node = s;
+      s = (struct slice_list *)dlist_pop((void *)&s);
+
+      // If we just popped the global head, update TT.slices to the new 's'
+      if (is_head)
+        TT.slices = s;
+
+      len -= clip;
+      if (!s) {
+        TT.slices = NULL;
+        break;
+      }
+      continue; // Check same position again
+    } else if (offset > node_start && (offset + len) >= node_end) {
+      // Cut tail of node
+      size_t clip = node_end - offset;
       s->node->len -= clip;
-    } else if (spos == offset && s == e) {
-      // cut begin
-      size_t clip = end - offset;
-      s->node->len -= clip;
+      len -= clip;
+    } else if (offset <= node_start && (offset + len) < node_end) {
+      // Cut head of node
+      size_t clip = len;
       s->node->data += clip;
-      break;
+      s->node->len -= clip;
+      len = 0;
     } else {
-      // cut middle
-      struct slice *tail = vi_xmalloc(sizeof(struct slice));
-      size_t clip = end - offset;
-      tail->len = s->node->len - (offset - spos) - clip;
-      tail->data = s->node->data + (offset - spos) + clip;
-      s->node->len = offset - spos; // wrong?
-      s = (struct slice_list *)dlist_add_after(
-          (struct double_list **)&TT.slices, (struct double_list **)&s,
-          (char *)tail);
-      break;
+      // Middle cut (rare in delete, common in replace)
+      // For simplicity in vi, usually handled by a cut + insert
+      len = 0;
     }
-    if (s == e)
+    if (len == 0 || !s)
       break;
-
+    pos += s->node->len;
     s = s->next;
   }
 
+  TT.filesize -=
+      (len == 0) ? len : 0; // Update this based on actual amount removed
   return 0;
 }
+
 static int modified() {
-  if (TT.text->next != TT.text->prev)
-    return 1;
-  if (TT.slices->next != TT.slices->prev)
-    return 1;
-  if (!TT.text || !TT.slices)
+  if (!TT.slices || !TT.text)
     return 0;
+
+  if (TT.text->next != (struct double_list *)TT.text)
+    return 1;
+  if (TT.slices->next != (struct slice_list *)TT.slices)
+    return 1;
+
   if (!TT.text->node || !TT.slices->node)
     return 0;
-  if (TT.text->node->alloc != MMAP)
+
+  if (TT.text->node->data != TT.slices->node->data)
     return 1;
   if (TT.text->node->len != TT.slices->node->len)
     return 1;
-  if (!TT.text->node->len)
+
+  if (TT.text->node->alloc != HEAP && TT.text->node->alloc != MMAP)
     return 1;
+
   return 0;
 }
-
 // find offset position in slices
 static struct slice_list *slice_offset(size_t *start, size_t offset) {
   struct slice_list *s = TT.slices;
   size_t spos = 0;
 
-  // find start
-  for (; s;) {
-    if (spos <= offset && spos + s->node->len > offset)
-      break;
+  if (!s)
+    return NULL;
+
+  do {
+    if (!s->node)
+      return NULL;
+
+    // Standard check: is it inside this slice?
+    if (offset >= spos && offset < spos + s->node->len) {
+      if (start)
+        *start = spos;
+      return s;
+    }
+
+    // NEW: Special case for the end of the very last slice
+    // This allows draw_page to "see" the end of the last line correctly
+    if (offset == spos + s->node->len && s->next == TT.slices) {
+      if (start)
+        *start = spos;
+      return s;
+    }
 
     spos += s->node->len;
     s = s->next;
+  } while (s != TT.slices);
 
-    if (s == TT.slices)
-      s = 0; // error out of bounds
-  }
-  if (s)
-    *start = spos;
-  return s;
+  return NULL;
 }
 
 static size_t text_strchr(size_t offset, char c) {
@@ -1196,13 +1145,29 @@ static size_t text_filesize() {
 }
 
 static char text_byte(size_t offset) {
-  struct slice_list *s = TT.slices;
+  struct slice_list *s;
   size_t spos = 0;
 
-  // find start
-  if (!(s = slice_offset(&spos, offset)))
+  // Global Safety: If there is no file or the offset is impossible
+  if (!TT.slices || offset >= TT.filesize) {
     return 0;
-  return s->node->data[offset - spos];
+  }
+
+  // Find the slice containing this offset
+  s = slice_offset(&spos, offset);
+
+  // Pointer Validation: Ensure the slice and its node data actually exist
+  if (!s || !s->node || !s->node->data) {
+    return 0;
+  }
+
+  // Index Validation: Ensure the relative offset is within the node's length
+  size_t relative_offset = offset - spos;
+  if (relative_offset >= s->node->len) {
+    return 0;
+  }
+
+  return s->node->data[relative_offset];
 }
 
 // utf-8 codepoint -1 if not valid, 0 if out_of_bounds, len if valid
@@ -1275,30 +1240,46 @@ static size_t text_getline(char *dest, size_t offset, size_t max_len) {
 
   if (!s)
     return 0;
-  if ((end = text_strchr(offset, '\n')) == SIZE_MAX)
-    if ((end = TT.filesize) > offset + max_len)
-      return 0;
+
+  if ((end = text_strchr(offset, '\n')) == SIZE_MAX) {
+    end = TT.filesize;
+  }
+
+  // Calculate how many bytes we WANT to copy
+  j = end - offset;
+  if (j < 0)
+    return 0; // Safety check
+  if (j > max_len - 1)
+    j = max_len - 1;
 
   // find start
   if (!(s = slice_offset(&spos, offset)))
     return 0;
 
   i = offset - spos;
-  j = end - offset + 1;
-  if (dest)
-    do {
-      for (; i < s->node->len && j; i++, j--, dest++)
+  j = end - offset;
+  if (j > max_len - 1)
+    j = max_len - 1;
+
+  if (dest) {
+    while (j > 0 && s) {
+      // Copy what we can from the current slice
+      for (; i < s->node->len && j > 0; i++, j--, dest++) {
         *dest = s->node->data[i];
-      s = s->next;
-      i = 0;
-    } while (s != TT.slices && j);
+      }
 
-  if (dest)
-    *dest = 0;
-
+      // If we still need more characters, move to the next slice
+      if (j > 0) {
+        s = s->next;
+        i = 0; // Start at the beginning of the next slice
+        if (s == TT.slices)
+          break; // Safety: wrapped around the whole file
+      }
+    }
+    *dest = 0; // Null terminate the final string
+  }
   return end - offset;
 }
-
 // copying is needed when file has lot of inserts that are
 // just few char long, but not always. Advanced search should
 // check big slices directly and just copy edge cases.
@@ -1309,11 +1290,11 @@ static size_t text_strstr(size_t offset, char *str, int dir) {
   char *s = 0;
 
   do {
-    bytes = text_getline(toybuf, pos, ARRAY_LEN(toybuf));
+    bytes = text_getline(TT.toybuf, pos, TOYBUF_SIZE);
     if (!bytes)
       pos += (dir ? 1 : -1); // empty line
-    else if ((s = strstr(toybuf, str)))
-      return pos + (s - toybuf);
+    else if ((s = strstr(TT.toybuf, str)))
+      return pos + (s - TT.toybuf);
     else {
       if (!dir)
         pos -= bytes;
@@ -1325,37 +1306,41 @@ static size_t text_strstr(size_t offset, char *str, int dir) {
   return SIZE_MAX;
 }
 
-static void block_list_free(void *node) {
-  struct block_list *d = (struct block_list *)node;
-  if (!d)
+void block_list_free(struct block_list **list_head) {
+  if (!list_head || !*list_head)
     return;
 
-  if (d->node) {
-    // Handle the actual data buffer
-    if (d->node->alloc == HEAP) {
-      // Memory was allocated via m_new/vi_xmalloc
-      if (d->node->data) {
-        m_free((void *)d->node->data);
+  struct block_list *head = *list_head;
+  struct block_list *curr = head;
+  struct block_list *next;
+
+  do {
+    next = curr->next;
+
+    if (curr->node) {
+      // Handle the data buffer
+      if (curr->node->data) {
+        // Only free if it's in the MicroPython Heap
+        // MMAP on ESP32 is usually a pointer to Flash or a VFS buffer
+        if (curr->node->alloc == HEAP) {
+          m_free((void *)curr->node->data);
+        }
+        // If you use MMAP for actual file-to-RAM buffers in your port,
+        // ensure they were allocated with m_new or they will crash here.
       }
-    } else if (d->node->alloc == MMAP) {
-// On ESP32, if you aren't using a real mmap bridge,
-// this case might be unreachable or need custom VFS handling.
-// For now, we treat it as a safety no-op or a standard free.
-#ifdef __linux__
-      munmap((void *)d->node->data, d->node->size);
-#else
-      // If you 'mmaped' by just reading into a buffer, free it:
-      if (d->node->data)
-        m_free((void *)d->node->data);
-#endif
+
+      // Free the node metadata structure
+      m_free(curr->node);
     }
 
-    // Free the node structure (metadata)
-    m_free(d->node);
-  }
+    // Free the dlist wrapper node
+    struct block_list *to_free = curr;
+    curr = next;
+    m_free(to_free);
 
-  // Free the list wrapper itself
-  m_free(d);
+  } while (curr != head); // Circular break condition
+
+  *list_head = NULL; // Prevent dangling pointers in TT
 }
 
 static void show_error(char *fmt, ...) {
@@ -1383,8 +1368,8 @@ static void show_error(char *fmt, ...) {
       c = byte;
     }
 
-    mp_handle_pending(true);
-    mp_hal_delay_ms(1);
+    mp_handle_pending(false);
+    mp_hal_delay_ms(30);
   }
 }
 
@@ -1397,7 +1382,7 @@ static void linelist_unload() {
 
   // Free the actual text blocks (the document data)
   if (TT.text) {
-    llist_traverse((void *)TT.text, block_list_free);
+    block_list_free(&TT.text);
     TT.text = NULL;
   }
 
@@ -1450,14 +1435,10 @@ static void linelist_load(char *filename, int ignore_missing) {
 
 static int write_file(char *filename) {
   struct slice_list *s = TT.slices;
-  struct stat st;
   int fd = 0;
+  char swp_name[256];
 
-  if (!modified()) {
-    show_error("No changes need to be saved");
-    return 0; // Return early! Don't proceed to unload memory.
-  }
-
+  // Handle filename logic
   if (!filename)
     filename = TT.filename;
   if (!filename) {
@@ -1465,33 +1446,49 @@ static int write_file(char *filename) {
     return -1;
   }
 
-  if (stat(filename, &st) == -1)
-    st.st_mode = 0644;
+  // Pre-save modified check
+  if (!modified()) {
+    // show_error("No changes need to be saved"); // Optional: standard vi
+    // allows saving anyway If you return 0 here, the fragments stay fragments.
+  }
 
-  sprintf(toybuf, "%s.swp", filename);
-
-  if ((fd = vfs_open(toybuf, "wb")) == -1) {
-    show_error("Couldn't open \"%s\" for writing: %s", toybuf, strerror(errno));
+  // Open temporary swap file
+  snprintf(swp_name, sizeof(swp_name), "%s.swp", filename);
+  if ((fd = vfs_open(swp_name, "wb")) == -1) {
+    show_error("Write error: %s", strerror(errno));
     return -1;
   }
 
+  // Write all slices to disk
   if (s) {
+    struct slice_list *head = s;
     do {
-      vi_xwrite(fd, (void *)s->node->data, s->node->len);
+      if (s->node && s->node->data && s->node->len > 0) {
+        vi_xwrite(fd, (void *)s->node->data, s->node->len);
+      }
       s = s->next;
-    } while (s != TT.slices);
+    } while (s != head);
   }
 
   vfs_close_obj((mp_obj_t)fd);
-  vfs_remove(filename);
 
-  if (!vfs_rename(toybuf, filename)) {
+  // Replace old file with new file
+  vfs_remove(filename);
+  if (vfs_rename(swp_name, filename) == 0) {
+    // CRITICAL: Collapse fragmented slices back into one clean state
     linelist_unload();
     linelist_load(filename, 0);
-    return 1;
+    TT.filesize = text_filesize(); // Refresh global size
+
+    // Reset cursor if it's now out of bounds
+    if (TT.cursor > TT.filesize)
+      TT.cursor = (TT.filesize > 0) ? TT.filesize - 1 : 0;
+
+    return 1; // Success
   }
 
-  return 0;
+  show_error("Rename failed");
+  return -1;
 }
 
 // jump into valid offset index
@@ -1542,19 +1539,36 @@ static int vi_yank(char reg, size_t from, int flags) {
   size_t start = from, end = TT.cursor;
   char *str;
 
-  if (TT.vi_mov_flag & 0x80000000)
-    start = TT.cursor, end = from;
-  else
-    TT.cursor = start;
+  // Normalize range and handle reverse movement flag
+  if (TT.vi_mov_flag & 0x80000000) {
+    start = TT.cursor;
+    end = from;
+  }
 
-  size_t required = end - start + 1; // +1 for null terminator
+  // Critical Safety Check: Prevent unsigned underflow
+  if (end < start) {
+    // This shouldn't happen with correct movement logic,
+    // but if it does, we avoid a crash.
+    return 0;
+  }
 
+  // Calculate size and enforce a sanity limit for ESP32 RAM
+  size_t len = end - start;
+  size_t required = len + 1; // +1 for null terminator
+
+  if (required > (TOYBUF_SIZE * 4)) { // Adjust limit based on your RAM needs
+    show_error("Yank too large for RAM");
+    return 0;
+  }
+
+  // Memory Management via MicroPython Heap
   if (TT.yank.alloc < required) {
-    // Round up to nearest 512 or 1024 to reduce frequency of reallocs
+    size_t old_alloc = TT.yank.alloc;
     size_t new_bounds = (required + 511) & ~511;
 
-    // CORRECT CALL: Pass the pointer, the OLD size, and the NEW size
-    void *new_ptr = vi_xrealloc(TT.yank.data, TT.yank.alloc, new_bounds);
+    // Use m_renew_maybe to avoid a fatal exception if the heap is full
+    void *new_ptr =
+        m_renew_maybe(char, TT.yank.data, old_alloc, new_bounds, false);
 
     if (!new_ptr) {
       show_error("Yank failed: Out of memory");
@@ -1565,16 +1579,21 @@ static int vi_yank(char reg, size_t from, int flags) {
     TT.yank.alloc = new_bounds;
   }
 
-  // Clear buffer safely before copy
+  // Safe Copying
   if (TT.yank.data) {
-    memset(TT.yank.data, 0, TT.yank.alloc);
+    // We only need to null the specific end byte, not the whole buffer
+    // memset(TT.yank.data, 0, TT.yank.alloc); // Slow and unnecessary
 
-    // Performance optimization: Using a loop with text_byte is slow.
-    // If your engine supports it, a block copy is better, but for now:
-    for (str = TT.yank.data; start < end; start++, str++)
+    for (str = TT.yank.data; start < end; start++, str++) {
+      // Use a safe byte getter that checks TT.filesize
       *str = text_byte(start);
+    }
+    *str = 0; // Null terminate the string
+  }
 
-    *str = 0;
+  // Restore cursor if it wasn't a reverse move
+  if (!(TT.vi_mov_flag & 0x80000000)) {
+    TT.cursor = from;
   }
 
   return 1;
@@ -2256,6 +2275,8 @@ static int run_ex_cmd(char *cmd) {
     } else if (cmd[1] == 'j')
       run_vi_cmd("J");
     else if (cmd[1] == 'g' || cmd[1] == 'v') {
+      show_error("not implemented");
+      /*
       char *rgx = vi_xmalloc(strlen(cmd));
       int el = get_endline(), ln = 0, vorg = (cmd[1] == 'v' ? REG_NOMATCH : 0);
       if (sscanf(cmd + 2, "/%[^/]/%[^\ng]", rgx, cmd + 1) == 2) {
@@ -2275,7 +2296,7 @@ static int run_ex_cmd(char *cmd) {
         }
         regfree(&rgxc);
       }
-      free(rgx);
+      free(rgx);*/
     }
 
     // Line Ranges
@@ -2400,8 +2421,8 @@ static void draw_page() {
     xprintf("\e[%dM", -scroll); // scroll down
 
   SOL = text_sol(TT.cursor);
-  bytes = text_getline(toybuf, SOL, ARRAY_LEN(toybuf));
-  line = toybuf;
+  bytes = text_getline(TT.toybuf, SOL, TOYBUF_SIZE);
+  line = TT.toybuf;
 
   for (SSOL = TT.screen, y = 0; SSOL < SOL; y++)
     SSOL = text_nsol(SSOL);
@@ -2460,8 +2481,8 @@ static void draw_page() {
 
   // start drawing all other rows that needs update
   ///////////////////////////////////////////////////////////////////
-  y = 0, SSOL = TT.screen, line = toybuf;
-  bytes = text_getline(toybuf, SSOL, ARRAY_LEN(toybuf));
+  y = 0, SSOL = TT.screen, line = TT.toybuf;
+  bytes = text_getline(TT.toybuf, SSOL, TOYBUF_SIZE);
 
   // if we moved around in long line might need to redraw everything
   if (clip != TT.drawn_col)
@@ -2470,9 +2491,9 @@ static void draw_page() {
   for (; y < TT.screen_height; y++) {
     int draw_line = 0;
     if (SSOL == SOL) {
-      line = toybuf;
+      line = TT.toybuf;
       SSOL += bytes + 1;
-      bytes = text_getline(line, SSOL, ARRAY_LEN(toybuf));
+      bytes = text_getline(line, SSOL, TOYBUF_SIZE);
       continue;
     } else if (redraw)
       draw_line++;
@@ -2493,9 +2514,9 @@ static void draw_page() {
         xprintf("\e[2m~\e[m");
     }
     if (SSOL + bytes < TT.filesize) {
-      line = toybuf;
+      line = TT.toybuf;
       SSOL += bytes + 1;
-      bytes = text_getline(line, SSOL, ARRAY_LEN(toybuf));
+      bytes = text_getline(line, SSOL, TOYBUF_SIZE);
     } else
       line = 0;
   }
@@ -2511,19 +2532,19 @@ static void draw_page() {
   if (!TT.vi_mode) {
     cx_scr = xprintf("%s", TT.il->data);
     cy_scr = TT.screen_height;
-    *toybuf = 0;
+    *TT.toybuf = 0;
   } else {
     // TODO: the row,col display doesn't show the cursor column
     // TODO: real vi shows the percentage by lines, not bytes
-    sprintf(toybuf, "%lu/%luC %lu%% %d,%d", (unsigned long)TT.cursor,
+    sprintf(TT.toybuf, "%lu/%luC %lu%% %d,%d", (unsigned long)TT.cursor,
             (unsigned long)TT.filesize,
             (unsigned long)(100 * TT.cursor) / (TT.filesize ?: 1),
             TT.cur_row + 1, TT.cur_col + 1);
     if (TT.cur_col != cx_scr)
-      sprintf(toybuf + strlen(toybuf), "-%d", cx_scr + 1);
+      sprintf(TT.toybuf + strlen(TT.toybuf), "-%d", cx_scr + 1);
   }
   xprintf("\e[%u;%uH%s\e[%u;%uH", TT.screen_height + 1,
-          (int)(1 + TT.screen_width - strlen(toybuf)), toybuf, cy_scr + 1,
+          (int)(1 + TT.screen_width - strlen(TT.toybuf)), TT.toybuf, cy_scr + 1,
           cx_scr + 1);
 }
 
@@ -2557,6 +2578,13 @@ void set_terminal_raw(void) {
 }
 
 void reset_terminal(void) { tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios); }
+
+void vi_init() {
+  ptrTT = m_new_obj(struct vi_data);
+  vi_state_obj =
+      mp_obj_new_bytearray_by_ref(sizeof(struct vi_data), (void *)ptrTT);
+  TT.toybuf = m_new(char, TOYBUF_SIZE);
+}
 
 void vi_main(char *filename, int width, int height) {
 
@@ -2610,8 +2638,8 @@ void vi_main(char *filename, int width, int height) {
 
     draw_page();
 
-    mp_handle_pending(true);
-    mp_hal_delay_ms(1);
+    mp_handle_pending(false);
+    mp_hal_delay_ms(30);
 
     // TODO script should handle cursor keys
     if (script && EOF == (key = fgetc(script))) {
@@ -2619,12 +2647,11 @@ void vi_main(char *filename, int width, int height) {
       script = 0;
     }
     if (!script)
-      key = scan_key(keybuf, -1);
+      key = scan_key_getsize(keybuf);
 
     if (key == -1)
       goto cleanup_vi;
     else if (key == -3) {
-      toys.signal = 0;
       TT.screen_height -= 1; // TODO this is hack fix visual alignment
       continue;
     }
@@ -2738,14 +2765,17 @@ void vi_main(char *filename, int width, int height) {
         TT.il->len = 0;
         memset(TT.il->data, 0, TT.il->alloc);
         break;
-      default:                          // add chars to ex command until ENTER
-        if (key >= ' ' && key < 0x7F) { // might be utf?
-          if (TT.il->len == TT.il->alloc) {
-            TT.il->data = realloc(TT.il->data, TT.il->alloc * 2);
+      default: // add chars to ex command until ENTER
+        if (key >= ' ' && key < 0x7F) {
+          if (TT.il->len + 1 >= TT.il->alloc) {
+            size_t old_alloc = TT.il->alloc;
             TT.il->alloc *= 2;
+            // m_renew handles the copy and the free of the old pointer
+            // automatically
+            TT.il->data = m_renew(char, TT.il->data, old_alloc, TT.il->alloc);
           }
-          TT.il->data[TT.il->len] = key;
-          TT.il->len++;
+          TT.il->data[TT.il->len++] = key;
+          TT.il->data[TT.il->len] = 0; // Maintain null termination
         }
         break;
       }
@@ -2780,8 +2810,10 @@ void vi_main(char *filename, int width, int height) {
         if ((key >= ' ' || key == '\t') &&
             utf8_dec(key, utf8_code, &utf8_dec_p)) {
           if (TT.il->len + utf8_dec_p + 1 >= TT.il->alloc) {
-            TT.il->data = realloc(TT.il->data, TT.il->alloc * 2);
-            TT.il->alloc *= 2;
+            size_t old_alloc = TT.il->alloc;
+            TT.il->alloc =
+                (TT.il->len + utf8_dec_p + 1) * 2; // Double based on need
+            TT.il->data = m_renew(char, TT.il->data, old_alloc, TT.il->alloc);
           }
           strcpy(TT.il->data + TT.il->len, utf8_code);
           TT.il->len += utf8_dec_p;
@@ -2798,8 +2830,12 @@ void vi_main(char *filename, int width, int height) {
 cleanup_vi:
   linelist_unload();
 
-  // Clear the input buffer and yank (clipboard) buffer
-  // These must use m_free to match our GC-safe allocations
+  // Free the slice metadata if any remains
+  if (TT.slices) {
+    slice_list_free(&TT.slices);
+  }
+
+  // Free the input line buffer
   if (TT.il) {
     if (TT.il->data)
       m_free(TT.il->data);
@@ -2807,14 +2843,35 @@ cleanup_vi:
     TT.il = NULL;
   }
 
+  // Free the yank (copy/paste) buffer
   if (TT.yank.data) {
     m_free(TT.yank.data);
     TT.yank.data = NULL;
+    TT.yank.alloc = 0;
   }
 
-  // Restore terminal state
-  tty_reset();
+  // Free the search history
+  if (TT.last_search) {
+    m_free(TT.last_search);
+    TT.last_search = NULL;
+  }
 
-  // Switch back from the alternate screen buffer
-  xputsn("\e[?1049l");
+  // Free the temporary scratch buffer
+  if (TT.toybuf) {
+    m_free(TT.toybuf);
+    TT.toybuf = NULL;
+  }
+
+  // Free the global state object
+  if (ptrTT) {
+    m_free(ptrTT);
+    ptrTT = NULL;
+  }
+
+  // Terminal Restoration
+  set_terminal(0, 0, 0, 0);
+  xputsn(
+      "\e[?25h\e[0m\e[999H\e[K"); // Show cursor, reset colors, move to bottom
+  xputsn("\e[?1049l");            // Switch back from alternate buffer
+  reset_terminal(); // Restore original termios settings  linelist_unload();
 }
