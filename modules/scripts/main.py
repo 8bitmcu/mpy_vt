@@ -7,7 +7,6 @@ import tdeck_kbd
 import tdeck_trk
 import tdeck_kvm
 import os
-import esp32
 import network
 import sys
 import time
@@ -140,12 +139,21 @@ class Command:
         return ""
 
 def vi_example():
-    with open("test.md", "w") as f:
-        f.write("Hello, T-Deck!\n")
-        f.write("This text is now saved\n")
+    try:
+        with open("example.md", "x") as f:
+            f.write("Hello, T-Deck!\n")
+            f.write("==============\n")
+            f.write("Lorem ipsum dolor sit amet, consectetur\n")
+            f.write("adipiscing elit, sed do eiusmod tempor\n")
+            f.write("incididunt ut labore et dolore magna\n")
+            f.write("aliqua. Ut enim ad minim veniam, quis\n")
+            f.write("nostrud exercitation ullamco laboris\n")
+            f.write("nisi ut aliquip ex ea commodo consequat.\n")
+    except:
+        pass
 
     import vi as _vi
-    _vi.Vi("test.md", kvm, cols, rows)
+    _vi.Vi("example.md", kvm, cols, rows)
 
 vi = Command(vi_example)
 
@@ -197,43 +205,26 @@ clear = Command(clear_screen)
 
 # Example: Telehack (great for testing text formatting)
 # Host: telehack.com, Port: 23
-def quick_telnet(name, port):
-    def handle_telnet_output(text):
-        term.write(text)
-
-    client = telnet.TelnetClient(name, port, cols=cols, rows=rows, on_receive_callback=handle_telnet_output)
-    client.connect()
-
+def telnet_telehack():
+    client = telnet.TelnetClient("telehack.com", 23, kvm, cols=cols, rows=rows)
     try:
-        while client.connected:
-            client.process(input_device=kvm)
-            time.sleep_ms(2)
+        client.process()
     except KeyboardInterrupt:
-        print("\nDisconnected.")
-        client.socket.close()
+        client.close()
 
+telehack = Command(telnet_telehack)
 
-def telehack():
-    quick_telnet("telehack.com", 23)
+def telnet_retrocampus():
+    client = telnet.TelnetClient("bbs.retrocampus.com", 23, kvm, cols=cols, rows=rows)
+    try:
+        client.process()
+    except KeyboardInterrupt:
+        client.close()
 
-def retrocampus():
-    quick_telnet("bbs.retrocampus.com", 23)
-
-def thekeep():
-    quick_telnet("thekeep.net", 23)
-
-def baud300():
-    quick_telnet("300baud.dynu.net", 2525)
-
-def amis86():
-    quick_telnet("amis86.ddns.net", 9000)
-
-def cbbs():
-    quick_telnet("cbbsoutpost.servebbs.com", 23)
-
+retrocampus = Command(telnet_retrocampus)
 
 
 
 
 # type wlan to connect to wifi
-# type telehack() for telnet telehack
+# type telehack for telnet telehack

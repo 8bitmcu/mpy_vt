@@ -137,11 +137,12 @@ static mp_obj_t tdeck_kvm_make_new(const mp_obj_type_t *type, size_t n_args,
 }
 
 // --- Registration ---
-
-// Add the inject method to the locals table
 static const mp_rom_map_elem_t kvm_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_inject), MP_ROM_PTR(&kvm_inject_obj)},
+    {MP_ROM_QSTR(MP_QSTR_read),     MP_ROM_PTR(&mp_stream_read_obj)},
     {MP_ROM_QSTR(MP_QSTR_readinto), MP_ROM_PTR(&mp_stream_readinto_obj)},
+    {MP_ROM_QSTR(MP_QSTR_write),    MP_ROM_PTR(&mp_stream_write_obj)},
+    {MP_ROM_QSTR(MP_QSTR_ioctl),    MP_ROM_PTR(&mp_stream_ioctl_obj)},
 };
 static MP_DEFINE_CONST_DICT(kvm_locals_dict, kvm_locals_dict_table);
 

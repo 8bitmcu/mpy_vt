@@ -6,11 +6,18 @@ This project now features first-class support for the **LILYGO T-Deck**, transfo
 
 As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the `vi` **text editor**. Furthermore, it provides a Python-based **Telnet client**, demonstrating how the terminal engine can be easily extended to create networked applications.
 
+| ASCII demo | vi app |
+| :---: | :---: |
+| ![animation](assets/screen.gif) | ![vi app](assets/screen2.jpg) |
 
-![animation](screen.gif)
+| Minesweeper (telnet) | Zork (telnet) |
+| :---: | :---: |
+| ![minesweeper](assets/screen3.jpg) | ![zork](assets/screen4.jpg) |
 
 
-## 🚀 Features
+
+
+## 🚀 VT Features
 
 ### **Core Terminal Capabilities**
 * **Full `st` (Suckless Terminal) Core:** Leveraging a battle-tested terminal engine for industrial-grade ANSI escape sequence parsing.
@@ -42,6 +49,17 @@ This project is composed of six specialized modules that works in tandem:
 | `vi` | Text Editor | Read/Write | A C-integrated port of the classic `vi` editor. |
 
 
+## 📟 T-Deck Hardware Integration
+
+This project is optimized for the **LilyGO T-Deck**, leveraging MicroPython to interface with the ESP32-S3 and its integrated peripherals.
+
+### 🛠 Supported Components
+
+| Component | Specification | Driver / Status |
+| :--- | :--- | :--- |
+| **Display** | 2.4" ST7789 LCD (320x240) | Optimized SPI bus (Full Color) |
+| **Input** | LILYGO Keyboard & Trackball | Fully Mapped I2C Interface |
+| **Memory** | 8MB PSRAM / 16MB Flash | Enabled for Large Buffer Handling |
 
 ## 🔌 MicroPython REPL Integration
 
@@ -107,7 +125,44 @@ def refresh_loop(timer):
 # 30ms = ~33 FPS.
 refresh_timer = machine.Timer(0)
 refresh_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=refresh_loop)
+```
 
+## 🔨 How to Build (T-Deck)
+
+### 1. Prerequisites
+
+Building this project requires a cross-compiler for the ESP32-S3 and the MicroPython source tree. Ensure you have the ESP-IDF (Espressif IoT Development Framework) installed. This project is verified on **ESP-IDF v5.5.1**.
+
+### 2. Setup and Compilation
+
+```bash
+# Clone this repository
+git clone https://github.com/8bitmcu/mpy_vt.git
+
+# Copy the T-Deck board definition into your micropython source directory:
+cp -r /path/to/mpy_vt/boards/LILYGO_T_DECK /path/to/micropython/ports/esp32/boards/
+
+# Initialize the ESP-IDF environment
+source $HOME/esp/esp-idf/export.sh
+
+# Build the MicroPython Cross-Compiler
+make -C /path/to/micropython/mpy-cross
+
+# Navigate to the T-Deck port directory.
+cd /path/to/micropython/ports/esp32
+
+# Specify the BOARD as LILYGO_T_DECK to enable PSRAM / Flash support
+# Specify USER_C_MODULES and FROZEN_MANIFEST for C modules and python scripts
+make BOARD=LILYGO_T_DECK USER_C_MODULES=/path/to/mpy_vt/modules FROZEN_MANIFEST=/path/to/mpy_vt/modules/manifest.py
+```
+
+### 3. Flashing
+
+Connect your T-Deck via USB-C. Hold the "Boot" button (trackball click) while toggling the power switch if the device isn't recognized.
+
+```Bash
+# Flash the firmware to the device
+idf.py -p /dev/ttyACM0 flash
 ```
 
 

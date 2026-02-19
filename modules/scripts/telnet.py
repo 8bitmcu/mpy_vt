@@ -1,5 +1,6 @@
 import select
 import socket
+import time
 
 # --- Telnet Protocol Constants ---
 IAC  = 255  # "Interpret As Command"
@@ -16,24 +17,22 @@ OPT_SGA  = 3   # Suppress Go Ahead
 OPT_NAWS = 31  # Negotiate About Window Size
 
 class TelnetClient:
-    def __init__(self, host, port, cols, rows, on_receive_callback):
+    def __init__(self, host, port, stream, cols, rows):
         self.host = host
         self.port = port
         self.cols = cols
         self.rows = rows
-        self.on_receive_callback = on_receive_callback
-        self.socket = None
+        self.stream = stream
         self.connected = False
         
         # State Machine Tracking
         self.buffer = b""
+        self.partial_seq = b""
         self.telnet_command_mode = False
         self.current_option_cmd = None
         self.subnegotiation_buffer = bytearray()
         self.in_subnegotiation = False
 
-    def connect(self):
-        self.on_receive_callback(f"Connecting to {self.host}:{self.port}...")
         addr = socket.getaddrinfo(self.host, self.port)[0][-1]
         self.socket = socket.socket()
         self.socket.connect(addr)
@@ -41,7 +40,6 @@ class TelnetClient:
         self.socket.send(bytes([IAC, WILL, OPT_SGA, IAC, WILL, OPT_ECHO, IAC, WILL, OPT_NAWS]))
         self.send_window_size()
         self.connected = True
-        self.on_receive_callback("Connected")
 
     def send_window_size(self):
         """
@@ -54,32 +52,51 @@ class TelnetClient:
 
         payload = bytes([IAC, SB, OPT_NAWS, w_h, w_l, h_h, h_l, IAC, SE])
         self.socket.send(payload)
-        self.on_receive_callback(f"REPORTED SIZE: {self.cols}x{self.rows}")
 
-    def process(self, input_device):
-        # 1. HANDLE INCOMING DATA (From Server)
-        try:
-            r, _, _ = select.select([self.socket], [], [], 0.01)
-            if r:
-                data = self.socket.recv(1024)
-                if not data:
-                    self.connected = False
-                    return
-                
-                if IAC not in data:
-                    self.on_receive_callback(data.decode('utf-8', 'ignore'))
+    def process(self):
+        while self.connected:
+            try:
+                r, _, _ = select.select([self.socket], [], [], 0.01)
+                if r:
+                    new_data = self.socket.recv(2048)
+                    if not new_data:
+                        self.connected = False
+                        return
+
+                    # Combine any leftover bytes from last time with new data
+                    data = self.partial_seq + new_data
+                    self.partial_seq = b""
+
+                    # Check if the data ends in the middle of a sequence
+                    # \x1b is the start, \x1b[ is the common prefix
+                    if data.endswith(b'\x1b'):
+                        self.partial_seq = b'\x1b'
+                        data = data[:-1]
+                    elif data.endswith(b'\x1b['):
+                        self.partial_seq = b'\x1b['
+                        data = data[:-2]
+                    elif data[-1:] in b'0123456789;[' and b'\x1b' in data[-8:]:
+                        # Search backwards for the last ESC
+                        last_esc = data.rfind(b'\x1b')
+                        self.partial_seq = data[last_esc:]
+                        data = data[:last_esc]
+
+                    if IAC in data:
+                        self._process_complex_data(data)
+                    else:
+                        self.stream.write(data)
+
+            except OSError:
+                pass
+
+            buf = bytearray(1)
+            if self.stream.readinto(buf):
+                char_byte = buf[0]
+                if char_byte == 13:
+                    self.socket.send(b'\r\n')
                 else:
-                    self._process_complex_data(data)
-        except OSError:
-            pass
-
-        buf = bytearray(1)
-        if input_device.readinto(buf):
-            char_byte = buf[0]
-            if char_byte == 13:
-                self.socket.send(b'\r\n')
-            else:
-                self.socket.send(bytes([char_byte]))
+                    self.socket.send(bytes([char_byte]))
+            time.sleep_ms(30)
 
     def _process_complex_data(self, data):
         """
@@ -126,7 +143,7 @@ class TelnetClient:
                     i += 1
 
         if clean_data:
-            self.on_receive_callback(clean_data.decode('utf-8', 'ignore'))
+            self.stream.write(clean_data)
 
 
     def _handle_negotiation(self, command, option):
@@ -160,3 +177,9 @@ class TelnetClient:
         # We don't need to process complex sub-requests for now
         pass
 
+    def close(self):
+        """Explicitly shut down the connection."""
+        if self.connected:
+            self.connected = False
+            self.socket.close()
+            self.stream.write("\nDisconnected.\n")
