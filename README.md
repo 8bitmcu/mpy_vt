@@ -6,13 +6,13 @@ This project now features first-class support for the **LILYGO T-Deck**, transfo
 
 As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the `vi` **text editor**. Furthermore, it provides a Python-based **Telnet client**, demonstrating how the terminal engine can be easily extended to create networked applications.
 
-| ASCII demo | vi app |
+| ASCII demo (running on CYD) | vi app |
 | :---: | :---: |
-| ![animation](assets/screen.gif) | ![vi app](assets/screen2.jpg) |
+| <img src="assets/screen.gif" alt="ascii demo" width="400"> | <img src="assets/screen2.jpg" alt="vi app" width="400"> |
 
 | Minesweeper (telnet) | Zork (telnet) |
 | :---: | :---: |
-| ![minesweeper](assets/screen3.jpg) | ![zork](assets/screen4.jpg) |
+| <img src="assets/screen3.jpg" alt="minesweeper" width="400"> | <img src="assets/screen4.jpg" alt="zork" width="400"> |
 
 
 
