@@ -92,7 +92,6 @@ MP_DEFINE_CONST_FUN_OBJ_1(vt_VT_scrolldown_obj, vt_VT_scrolldown);
 
 
 static mp_obj_t vt_vt_top_offset(mp_obj_t self_in, mp_obj_t offset_obj) {
-  vt_VT_obj_t *self = MP_OBJ_TO_PTR(self_in);
   int offset = mp_obj_get_int(offset_obj);
 
   // Update the offset in the terminal engine

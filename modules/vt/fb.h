@@ -11,6 +11,7 @@
 
 #include "st.h"  /* To get the Glyph and Rune types */
 #include "win.h" /* To ensure we match original X11 signatures */
+#include "st7789.h"
 #include <stdint.h>
 
 typedef struct _vt_VT_obj_t {

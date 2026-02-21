@@ -10,6 +10,12 @@
 extern "C" {
 #endif
 
+#include "mpfile.h"
+#include "py/obj.h"
+#include "py/runtime.h"
+#include "py/mphal.h"
+
+
 // color modes
 #define COLOR_MODE_65K      0x50
 #define COLOR_MODE_262K     0x60

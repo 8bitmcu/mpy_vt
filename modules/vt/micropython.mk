@@ -8,12 +8,3 @@ SRC_USERMOD += $(TERM_MOD_DIR)/fb.c
 # We can add our module folder to include paths if needed
 # This is not actually needed in this example.
 CFLAGS_USERMOD += -I$(TERM_MOD_DIR)
-
-# Disable the "Stop on Warning" behavior
-CFLAGS_USERMOD += -Wno-error
-
-# Silence common Suckless/Legacy C warnings
-CFLAGS_USERMOD += -Wno-unused-parameter
-CFLAGS_USERMOD += -Wno-sign-compare
-CFLAGS_USERMOD += -Wno-unused-result
-CFLAGS_USERMOD += -Wno-type-limits

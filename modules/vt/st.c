@@ -1,24 +1,21 @@
 /* See LICENSE for license details. */
+
 #include <ctype.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <limits.h>
-#include <pwd.h>
-#include <signal.h>
 #include <stdarg.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
-#include <sys/select.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <termios.h>
 #include <unistd.h>
 #include <wchar.h>
 
 #include "st.h"
 #include "win.h"
+
+#include "py/runtime.h"
+
 
 static void ttywriteraw(const char *, size_t);
 
@@ -94,7 +91,6 @@ static CSIEscape csiescseq;
 static STREscape strescseq;
 static int iofd = 1;
 static int cmdfd;
-static pid_t pid;
 
 static const uchar utfbyte[UTF_SIZ + 1] = {0x80, 0, 0xC0, 0xE0, 0xF0};
 static const uchar utfmask[UTF_SIZ + 1] = {0xC0, 0x80, 0xE0, 0xF0, 0xF8};
@@ -434,7 +430,7 @@ char *getsel(void) {
       gp = &TLINE(y)[sel.nb.y == y ? sel.nb.x : 0];
       lastx = (sel.ne.y == y) ? sel.ne.x : term.col - 1;
     }
-    last = &TLINE(y)[MIN(lastx, linelen - 1)];
+    last = &TLINE(y)[SMIN(lastx, linelen - 1)];
     while (last >= gp && last->u == ' ')
       --last;
 
@@ -472,11 +468,9 @@ void selclear(void) {
 
 void die(const char *errstr, ...) {
   va_list ap;
-
   va_start(ap, errstr);
-  vfprintf(stderr, errstr, ap);
+  mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT(errstr), ap);
   va_end(ap);
-  exit(1);
 }
 
 size_t ttyread(void) {
@@ -587,13 +581,9 @@ write_error:
   die("write error on tty: %s\n", strerror(errno));
 }
 
-// TODO stub
 void ttyresize(int tw, int th) {}
 
-void ttyhangup(void) {
-  /* Send SIGHUP to shell */
-  kill(pid, SIGHUP);
-}
+void ttyhangup(void) {}
 
 int tattrset(int attr) {
   int i, j;
@@ -768,7 +758,7 @@ void tscrollup(int orig, int n, int copyhist) {
   }
 
   if (term.scr > 0 && term.scr < HISTSIZE)
-    term.scr = MIN(term.scr + n, HISTSIZE - 1);
+    term.scr = SMIN(term.scr + n, HISTSIZE - 1);
 
   tclearregion(0, orig, term.col - 1, orig + n - 1);
   tsetdirt(orig + n, term.bot);
@@ -1699,10 +1689,7 @@ void strreset(void) {
   };
 }
 
-void sendbreak(const Arg *arg) {
-  if (tcsendbreak(cmdfd, 0))
-    perror("Error sending break");
-}
+void sendbreak(const Arg *arg) {}
 
 void tprinter(char *s, size_t len) {
   if (iofd != -1 && xwrite(iofd, s, len) < 0) {
