@@ -66,7 +66,7 @@ jobs:
               echo "===================================================="
               echo "   CMaKE FAILED: PRINTING HIDDEN ERROR LOGS         "
               echo "===================================================="
-              cat build-LILYGO_T_DECK/log/idf_py_stderr_output_* || true
+              cat build-LILYGO_T_DECK/log/* || true
               exit 1
           fi
 
