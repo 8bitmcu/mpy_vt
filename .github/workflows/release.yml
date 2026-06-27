@@ -60,11 +60,12 @@ jobs:
         run: |
           cd micropython/ports/esp32
           . $HOME/esp/esp-idf/export.sh
+          export MPY_USER_MODULES_DIR="$GITHUB_WORKSPACE/mpy_vt/modules"
           if ! make BOARD=LILYGO_T_DECK \
                  USER_C_MODULES=$GITHUB_WORKSPACE/mpy_vt/modules \
                  FROZEN_MANIFEST=$GITHUB_WORKSPACE/mpy_vt/modules/manifest.py; then
               echo "===================================================="
-              echo "   CMaKE FAILED: PRINTING HIDDEN ERROR LOGS         "
+              echo "   COMPILATION FAILED: DUMPING LOG DIRECTORY        "
               echo "===================================================="
               cat build-LILYGO_T_DECK/log/* || true
               exit 1
