@@ -46,6 +46,8 @@ jobs:
         run: |
           cp -r mpy_vt/boards/LILYGO_T_DECK micropython/ports/esp32/boards/
 
+          . $HOME/esp/esp-idf/export.sh
+
           cd micropython
           make -C ports/esp32 submodules
 
@@ -56,10 +58,7 @@ jobs:
 
       - name: Compile T-Deck Firmware Binary
         run: |
-          . $HOME/esp/esp-idf/export.sh
-
           cd micropython/ports/esp32
-
           make BOARD=LILYGO_T_DECK \
                USER_C_MODULES=$GITHUB_WORKSPACE/mpy_vt/modules \
                FROZEN_MANIFEST=$GITHUB_WORKSPACE/mpy_vt/modules/manifest.py
