@@ -60,9 +60,16 @@ jobs:
         run: |
           cd micropython/ports/esp32
           . $HOME/esp/esp-idf/export.sh
-          make BOARD=LILYGO_T_DECK \
-               USER_C_MODULES=$GITHUB_WORKSPACE/mpy_vt/modules \
-               FROZEN_MANIFEST=$GITHUB_WORKSPACE/mpy_vt/modules/manifest.py
+          if ! make BOARD=LILYGO_T_DECK \
+                 USER_C_MODULES=$GITHUB_WORKSPACE/mpy_vt/modules \
+                 FROZEN_MANIFEST=$GITHUB_WORKSPACE/mpy_vt/modules/manifest.py; then
+              echo "===================================================="
+              echo "   CMaKE FAILED: PRINTING HIDDEN ERROR LOGS         "
+              echo "===================================================="
+              cat build-LILYGO_T_DECK/log/idf_py_stderr_output_* || true
+              exit 1
+          fi
+
 
       - name: Prepare Release Artifacts
         run: |
