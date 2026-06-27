@@ -1,2 +1,7 @@
+import os
 
-freeze("/opt/all_modules/scripts")
+MODULE_DIR = os.path.dirname(__file__)
+
+SCRIPTS_DIR = os.path.join(MODULE_DIR, "scripts")
+
+freeze(SCRIPTS_DIR)
