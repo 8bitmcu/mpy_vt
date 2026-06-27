@@ -11,6 +11,9 @@ on:
         required: true
         default: 'v-manual'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -32,7 +35,15 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libffi-dev git pkg-config python3 python3-pip python3-virtualenv
+          sudo apt-get install -y build-essential libffi-dev git pkg-config python3 python3-pip python3-virtualenv ccache
+
+      - name: Setup Compiler Cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-ccache-esp-idf-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-esp-idf-
 
       - name: Setup ESP-IDF
         run: |
@@ -61,7 +72,7 @@ jobs:
           cd micropython/ports/esp32
           . $HOME/esp/esp-idf/export.sh
           export MPY_USER_MODULES_DIR="$GITHUB_WORKSPACE/mpy_vt/modules"
-          if ! make BOARD=LILYGO_T_DECK \
+          if ! make BOARD=LILYGO_T_DECK CCACHE_ENABLE=1 \
                  USER_C_MODULES=$GITHUB_WORKSPACE/mpy_vt/modules \
                  FROZEN_MANIFEST=$GITHUB_WORKSPACE/mpy_vt/modules/manifest.py; then
               echo "===================================================="
@@ -70,7 +81,6 @@ jobs:
               cat build-LILYGO_T_DECK/log/* || true
               exit 1
           fi
-
 
       - name: Prepare Release Artifacts
         run: |
@@ -89,9 +99,9 @@ jobs:
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref_name }}
           name: Release ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref_name }}
-          
+
           target_commitish: ${{ github.sha }}
-          
+
           files: |
             tdeck-micropython-*.zip
             release_assets/tdeck-firmware-*.bin
