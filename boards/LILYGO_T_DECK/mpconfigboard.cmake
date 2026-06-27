@@ -1,12 +1,12 @@
 set(IDF_TARGET esp32s3)
 
 set(SDKCONFIG_DEFAULTS
-    ${MICROPY_PORT_DIR}/boards/sdkconfig.base
-    ${MICROPY_PORT_DIR}/boards/sdkconfig.ble
-    ${MICROPY_PORT_DIR}/boards/sdkconfig.spiram_sx
-    ${MICROPY_BOARD_DIR}/sdkconfig.board
-    ${MICROPY_PORT_DIR}/boards/sdkconfig.240mhz
-    ${MICROPY_PORT_DIR}/boards/sdkconfig.spiram_oct
+    ${CMAKE_CURRENT_LIST_DIR}/../sdkconfig.base
+    ${CMAKE_CURRENT_LIST_DIR}/../sdkconfig.ble
+    ${CMAKE_CURRENT_LIST_DIR}/../sdkconfig.spiram_sx
+    ${CMAKE_CURRENT_LIST_DIR}/sdkconfig.board
+    ${CMAKE_CURRENT_LIST_DIR}/../sdkconfig.240mhz
+    ${CMAKE_CURRENT_LIST_DIR}/../sdkconfig.spiram_oct
 )
 
 
