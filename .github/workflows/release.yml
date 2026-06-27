@@ -1,0 +1,86 @@
+name: Build and Release Firmware
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version Tag for Manual Release (e.g., v1.0.0-beta)'
+        required: true
+        default: 'v-manual'
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout mpy_vt repository
+        uses: actions/checkout@v4
+        with:
+          path: mpy_vt
+
+      - name: Checkout MicroPython repository
+        uses: actions/checkout@v4
+        with:
+          repository: micropython/micropython
+          #ref: v1.22.2
+          submodules: 'recursive'
+          path: micropython
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libffi-dev git pkg-config python3 python3-pip python3-virtualenv
+
+      - name: Setup ESP-IDF
+        run: |
+          mkdir -p $HOME/esp
+          cd $HOME/esp
+          git clone --recursive -b v5.5.1 https://github.com/espressif/esp-idf.git
+          cd esp-idf
+          ./install.sh esp32s3
+
+      - name: Prepare Board Definitions and Submodules
+        run: |
+          cp -r mpy_vt/boards/LILYGO_T_DECK micropython/ports/esp32/boards/
+
+          cd micropython
+          make -C ports/esp32 submodules
+
+      - name: Build mpy-cross (MicroPython Cross-Compiler)
+        run: |
+          cd micropython/mpy-cross
+          make
+
+      - name: Compile T-Deck Firmware Binary
+        run: |
+          . $HOME/esp/esp-idf/export.sh
+
+          cd micropython/ports/esp32
+
+          make BOARD=LILYGO_T_DECK \
+               USER_C_MODULES=$GITHUB_WORKSPACE/mpy_vt/modules \
+               FROZEN_MANIFEST=$GITHUB_WORKSPACE/mpy_vt/modules/manifest.py
+
+      - name: Prepare Release Artifacts
+        run: |
+          mkdir -p release_assets
+          BUILD_DIR=micropython/ports/esp32/build-LILYGO_T_DECK
+
+          cp $BUILD_DIR/firmware.bin release_assets/tdeck-firmware-${{ github.ref_name }}.bin
+          cp $BUILD_DIR/bootloader/bootloader.bin release_assets/bootloader.bin
+          cp $BUILD_DIR/partition_table/partition-table.bin release_assets/partition-table.bin
+
+          cd release_assets
+          zip -r ../tdeck-micropython-${{ github.ref_name }}.zip ./*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            tdeck-micropython-${{ github.ref_name }}.zip
+            release_assets/tdeck-firmware-${{ github.ref_name }}.bin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
