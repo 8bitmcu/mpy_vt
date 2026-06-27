@@ -87,8 +87,13 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref_name }}
+          name: Release ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref_name }}
+          
+          target_commitish: ${{ github.sha }}
+          
           files: |
-            tdeck-micropython-${{ github.ref_name }}.zip
-            release_assets/tdeck-firmware-${{ github.ref_name }}.bin
+            tdeck-micropython-*.zip
+            release_assets/tdeck-firmware-*.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
