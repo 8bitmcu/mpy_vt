@@ -56,9 +56,7 @@ jobs:
       - name: Prepare Board Definitions and Submodules
         run: |
           cp -r mpy_vt/boards/LILYGO_T_DECK micropython/ports/esp32/boards/
-
           . $HOME/esp/esp-idf/export.sh
-
           cd micropython
           make -C ports/esp32 submodules
 
@@ -86,11 +84,9 @@ jobs:
         run: |
           mkdir -p release_assets
           BUILD_DIR=micropython/ports/esp32/build-LILYGO_T_DECK
-
           cp $BUILD_DIR/firmware.bin release_assets/tdeck-firmware-${{ github.ref_name }}.bin
           cp $BUILD_DIR/bootloader/bootloader.bin release_assets/bootloader.bin
           cp $BUILD_DIR/partition_table/partition-table.bin release_assets/partition-table.bin
-
           cd release_assets
           zip -r ../tdeck-micropython-${{ github.ref_name }}.zip ./*
 
@@ -99,9 +95,7 @@ jobs:
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref_name }}
           name: Release ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref_name }}
-
           target_commitish: ${{ github.sha }}
-
           files: |
             tdeck-micropython-*.zip
             release_assets/tdeck-firmware-*.bin
