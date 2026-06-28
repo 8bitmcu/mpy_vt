@@ -7,10 +7,10 @@ import tdeck_kbd
 import tdeck_trk
 import tdeck_kvm
 import os
-import network
 import sys
 import time
 import telnet
+import netman
 import st7789
 import time
 import status
@@ -137,6 +137,9 @@ class Command:
         self.func()
         return ""
 
+# Network Manager
+nm = Command(netman.connect_wifi)
+
 def vi_example():
     try:
         with open("example.md", "x") as f:
@@ -165,37 +168,6 @@ def check_leaks():
         print(f"Leak: {before - after} bytes/sec")
 
 leak = Command(check_leaks)
-
-def connect_wlan():
-    # ANSI Escape Codes
-    CLR = "\x1b[0m"      # Reset all
-    BOLD = "\x1b[1m"     # Bold (Swaps to your bfont)
-    CYAN = "\x1b[36m"    # Cyan text
-    GREEN = "\x1b[32m"   # Green text
-    YELLOW = "\x1b[33m"  # Yellow text
-    WHITE_ON_BLUE = "\x1b[37;44m" # White text on Blue background
-
-    print(f"{CYAN}Connecting to WiFi...{CLR}")
-
-    wlan = network.WLAN(network.STA_IF)
-    wlan.active(True)
-    if not wlan.isconnected():
-        #wlan.connect(secrets['ssid'], secrets['pw'])
-        while not wlan.isconnected():
-            sys.stdout.write(f"{YELLOW}.{CLR}") 
-            time.sleep(1)
-
-    print(f"\n{BOLD}{GREEN}WiFi Connected!{CLR}")
-    ip, subnet, gateway, dns = wlan.ifconfig()
-
-    print(f"{WHITE_ON_BLUE}      NETWORK CONFIGURATION      {CLR}")
-    print(f"{BOLD}IP Address:{CLR}  {GREEN}{ip}{CLR}")
-    print(f"{BOLD}Subnet:{CLR}      {subnet}")
-    print(f"{BOLD}Gateway:{CLR}     {gateway}")
-    print(f"{BOLD}DNS Server:{CLR}  {dns}")
-    print(f"{CYAN}{'-' * 33}{CLR}")
-
-wlan = Command(connect_wlan)
 
 def clear_screen():
     print("\033[2J\033[H", end="")
