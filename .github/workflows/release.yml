@@ -37,6 +37,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libffi-dev git pkg-config python3 python3-pip python3-virtualenv ccache
 
+      - name: Cache ESP-IDF and Toolchains
+        id: cache-esp-idf
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/esp/esp-idf
+            ~/.espressif
+          key: esp-idf-v5.5.2-v1
+
+      - name: Setup ESP-IDF
+        if: steps.cache-esp-idf.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p $HOME/esp
+          cd $HOME/esp
+          git clone --recursive -b v5.5.2 https://github.com/espressif/esp-idf.git
+          cd esp-idf
+          ./install.sh esp32s3
+
       - name: Setup Compiler Cache
         uses: actions/cache@v4
         with:
@@ -44,14 +62,6 @@ jobs:
           key: ccache-esp-idf-${{ github.sha }}
           restore-keys: |
             ccache-esp-idf-
-
-      - name: Setup ESP-IDF
-        run: |
-          mkdir -p $HOME/esp
-          cd $HOME/esp
-          git clone --recursive -b v5.5.2 https://github.com/espressif/esp-idf.git
-          cd esp-idf
-          ./install.sh esp32s3
 
       - name: Prepare Board Definitions and Submodules
         run: |
