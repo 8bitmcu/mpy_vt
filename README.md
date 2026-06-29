@@ -15,7 +15,26 @@ As a showcase of the engine's capabilities, this project includes a fully functi
 | <img src="assets/screen3.jpg" alt="minesweeper" width="400"> | <img src="assets/screen4.jpg" alt="zork" width="400"> |
 
 
+## 📝 How to use
 
+### Trackball Usage
+- **Long Press**: Sends `KeyboardInterrupt`
+- **Short Press**: Sends `Esc`
+- **Scroll up**: Scroll up st terminal history
+- **Scroll down**: Scroll down st terminal history
+- **Scroll left**: Scroll up st command history
+- **Scroll right**: Scroll down st command history
+
+### Available commands
+
+| Command | Description |
+| :---   | :--- |
+| `nm` | Starts the Network Manager TUI |
+| `vi` | Opens example.md (with content) within the vi port |
+| `leak` | Check for MicroPython memory leaks |
+| `clear` | Clears the screen |
+| `telehack` | Connects telnet to telehack.com |
+| `retrocampus` | Connects telnet to bbs.retrocampus.com |
 
 ## 🚀 VT Features
 
