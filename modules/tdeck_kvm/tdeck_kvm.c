@@ -30,8 +30,7 @@ typedef struct _tdeck_kvm_obj_t {
 
 // --- Injection Logic ---
 
-void internal_inject(const char *data) {
-  size_t len = strlen(data);
+void internal_inject_n(const char *data, size_t len) {
   for (size_t i = 0; i < len; i++) {
     uint8_t next = (inject_head + 1) % INJECT_BUF_SIZE;
     if (next != inject_tail) { // Avoid overflow
@@ -39,6 +38,10 @@ void internal_inject(const char *data) {
       inject_head = next;
     }
   }
+}
+
+void internal_inject(const char *data) {
+  internal_inject_n(data, strlen(data));
 }
 
 // Python Method: kvm.inject("string")

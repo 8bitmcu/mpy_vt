@@ -169,6 +169,20 @@ def check_leaks():
 
 leak = Command(check_leaks)
 
+def last_reset_cause():
+    _reset_names = {
+        machine.PWRON_RESET: "PWRON_RESET (power-on)",
+        machine.HARD_RESET: "HARD_RESET (panic / external reset)",
+        machine.WDT_RESET: "WDT_RESET (watchdog timeout)",
+        machine.DEEPSLEEP_RESET: "DEEPSLEEP_RESET (woke from deep sleep)",
+        machine.SOFT_RESET: "SOFT_RESET (soft reboot)",
+    }
+    _reset_cause = machine.reset_cause()
+    print("Last reset cause: %s [%d]" % (_reset_names.get(_reset_cause, "UNKNOWN"), _reset_cause))
+
+debug_reset = Command(last_reset_cause)
+
+
 def clear_screen():
     print("\033[2J\033[H", end="")
 

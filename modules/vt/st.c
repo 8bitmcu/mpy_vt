@@ -497,8 +497,11 @@ size_t ttyread(void) {
   }
 }
 
+/* Defined in modules/tdeck_kvm/tdeck_kvm.c - pushes bytes into the KVM input
+ * ring buffer that kvm_read() drains before the hardware keyboard. */
+extern void internal_inject_n(const char *data, size_t len);
+
 void ttywrite(const char *s, size_t n, int may_echo) {
-  const char *next;
   Arg arg = (Arg){.i = term.scr};
 
   kscrolldown(&arg);
@@ -506,24 +509,19 @@ void ttywrite(const char *s, size_t n, int may_echo) {
   if (may_echo && IS_SET(MODE_ECHO))
     twrite(s, n, 1);
 
-  if (!IS_SET(MODE_CRLF)) {
-    ttywriteraw(s, n);
-    return;
-  }
-
-  /* This is similar to how the kernel handles ONLCR for ttys */
-  while (n > 0) {
-    if (*s == '\r') {
-      next = s + 1;
-      ttywriteraw("\r\n", 2);
-    } else {
-      next = memchr(s, '\r', n);
-      DEFAULT(next, s + n);
-      ttywriteraw(s, next - s);
-    }
-    n -= next - s;
-    s = next;
-  }
+  /*
+   * This embedded port has no pty: cmdfd is never opened (no ttynew/forkpty).
+   * Terminal replies (Device Attributes, DSR/CPR cursor reports, OSC color
+   * queries) must reach whatever drives the terminal, so route them into the
+   * KVM input queue - vi and telnet both read their input from KVM and so
+   * receive the reply exactly as they would from a real tty.
+   *
+   * The original ttywriteraw()/pselect()/ttyread() path is intentionally not
+   * used: writing to the unopened cmdfd made ttywriteraw() spin forever in
+   * pselect(), starving the MicroPython task and triggering the task watchdog
+   * (WDT_RESET) whenever an app queried the terminal.
+   */
+  internal_inject_n(s, n);
 }
 
 void ttywriteraw(const char *s, size_t n) {
