@@ -53,14 +53,14 @@ jobs:
           path: |
             ~/esp/esp-idf
             ~/.espressif
-          key: esp-idf-v5.5.2-v1
+          key: esp-idf-v5.5.1-v1
 
       - name: Setup ESP-IDF (On Cache Miss)
         if: steps.cache-esp-idf.outputs.cache-hit != 'true'
         run: |
           mkdir -p $HOME/esp
           cd $HOME/esp
-          git clone --recursive -b v5.5.2 https://github.com/espressif/esp-idf.git
+          git clone --recursive -b v5.5.1 https://github.com/espressif/esp-idf.git
           cd esp-idf
           ./install.sh esp32s3
 
