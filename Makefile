@@ -8,11 +8,10 @@ ESP32_PORT_DIR = $(CONTAINER_WORKDIR)/ports/esp32
 ESP_IMAGE = espressif/idf:v5.5.1
 MPY_SOURCE_DIR = $(shell pwd)/../micropython
 
-USER_MODS_DIR = $(shell pwd)/modules
-
 PORT ?= /dev/ttyACM0
 BAUD ?= 460800
 BOARD = LILYGO_T_DECK
+BOARD_DIR = $(shell pwd)/boards/$(BOARD)
 
 .PHONY: all image build shell clean run
 
@@ -55,6 +54,7 @@ build_esp32_base:
 build_esp32:
 	@mkdir -p $(BUILD_DIR)
 	rm -rf $(BUILD_DIR)/*
+	cp -r $(BOARD_DIR) $(MPY_SOURCE_DIR)/ports/esp32/boards/
 	docker run --rm \
 		-v $(MPY_SOURCE_DIR):/opt/micropython \
 		-v $(USER_MODS_DIR):/opt/all_modules \
@@ -69,6 +69,7 @@ build_esp32:
 				FROZEN_MANIFEST=/opt/all_modules/manifest.py && \
 			cp /opt/micropython/ports/esp32/build-$(BOARD)/firmware.bin /opt/external_build/ && \
 			cp /opt/micropython/ports/esp32/build-$(BOARD)/micropython.bin /opt/external_build/ && \
+			cp /opt/micropython/ports/esp32/build-$(BOARD)/micropython.elf /opt/external_build/ && \
 			chown -R $(shell id -u):$(shell id -g) /opt/external_build/."
 
 flash:
@@ -104,14 +105,16 @@ repl:
 
 clean:
 	docker run --rm \
-		--device=$(PORT):$(PORT) \
-		-v $(BUILD_DIR):/opt/micropython/ports/esp32/build-$(BOARD) \
+		-v $(MPY_SOURCE_DIR):/opt/micropython \
 		$(ESP_IMAGE) \
-		/bin/bash -c "source /opt/esp/idf/export.sh && \
-			cd /opt/micropython/ports/esp32 && \
-			idf.py fullclean && \
-			idf.py -D MICROPY_BOARD=ESP32_GENERIC_S3 set-target esp32s3 && \
-			idf.py -D IDF_TARGET=esp32s3 reconfigure"
+		/bin/bash -c "cd /opt/micropython/mpy-cross && make clean"
+	
+	docker run --rm \
+		-v $(MPY_SOURCE_DIR):/opt/micropython \
+		$(ESP_IMAGE) \
+		/bin/bash -c "rm -rf /opt/micropython/ports/esp32/build-*"
+
+	rm -rf $(MPY_SOURCE_DIR)/ports/esp32/boards/$(BOARD)
 
 	docker run --rm \
 		-v $(MPY_SOURCE_DIR):/opt/micropython \
@@ -120,3 +123,10 @@ clean:
 		/bin/bash -c "make -C /opt/micropython/mpy-cross clean && \
 									rm -rf /opt/micropython/ports/esp32/build* && \
 									rm -rf /opt/external_build/*"
+
+core_dump:
+	docker run --rm \
+		--device=$(PORT):$(PORT) \
+		-v $(BUILD_DIR):/opt/external_build \
+		$(ESP_IMAGE) \
+		/bin/bash -c "esp-coredump --chip esp32s3 --port $(PORT) info_corefile /opt/external_build/micropython.elf"
