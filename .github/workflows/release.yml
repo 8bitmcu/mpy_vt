@@ -3,13 +3,13 @@ name: Build and Release Firmware
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       version_tag:
-        description: 'Version Tag for Manual Release (e.g., v1.0.0-beta)'
+        description: "Version Tag for Manual Release (e.g., v1.0.0-beta)"
         required: true
-        default: 'v-manual'
+        default: "v-manual"
 
 permissions:
   contents: write
@@ -24,12 +24,20 @@ jobs:
         with:
           path: mpy_vt
 
-      - name: Checkout MicroPython repository
+      - name: Cache MicroPython Repository and Submodules
+        id: cache-micropython
+        uses: actions/cache@v4
+        with:
+          path: micropython
+          key: micropython-v1.28.0-rec-v1
+
+      - name: Checkout MicroPython repository (On Cache Miss)
+        if: steps.cache-micropython.outputs.cache-hit != 'true'
         uses: actions/checkout@v4
         with:
           repository: micropython/micropython
-          #ref: v1.22.2
-          submodules: 'recursive'
+          ref: v1.28.0
+          submodules: "recursive"
           path: micropython
 
       - name: Install Build Dependencies
@@ -37,6 +45,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libffi-dev git pkg-config python3 python3-pip python3-virtualenv ccache
 
+      # --- ESP-IDF and Toolchain Cache ---
       - name: Cache ESP-IDF and Toolchains
         id: cache-esp-idf
         uses: actions/cache@v4
@@ -46,7 +55,7 @@ jobs:
             ~/.espressif
           key: esp-idf-v5.5.2-v1
 
-      - name: Setup ESP-IDF
+      - name: Setup ESP-IDF (On Cache Miss)
         if: steps.cache-esp-idf.outputs.cache-hit != 'true'
         run: |
           mkdir -p $HOME/esp
@@ -55,6 +64,7 @@ jobs:
           cd esp-idf
           ./install.sh esp32s3
 
+      # --- Compiler ccache ---
       - name: Setup Compiler Cache
         uses: actions/cache@v4
         with:
@@ -65,14 +75,19 @@ jobs:
 
       - name: Prepare Board Definitions and Submodules
         run: |
+          # Freshly copy your local board configurations over to the ported structure
+          rm -rf micropython/ports/esp32/boards/LILYGO_T_DECK
           cp -r mpy_vt/boards/LILYGO_T_DECK micropython/ports/esp32/boards/
+
           . $HOME/esp/esp-idf/export.sh
           cd micropython
+          # This step catches any architecture-specific submodules if required
           make -C ports/esp32 submodules
 
       - name: Build mpy-cross (MicroPython Cross-Compiler)
         run: |
           cd micropython/mpy-cross
+          make clean || true  # Clean build artifacts if pulled from cache
           make
 
       - name: Compile T-Deck Firmware Binary
@@ -80,9 +95,13 @@ jobs:
           cd micropython/ports/esp32
           . $HOME/esp/esp-idf/export.sh
           export MPY_USER_MODULES_DIR="$GITHUB_WORKSPACE/mpy_vt/modules"
+
+          # Wipe previous hardware builds if compiling on a workspace cache hit
+          make BOARD=LILYGO_T_DECK clean || true
+
           if ! make BOARD=LILYGO_T_DECK CCACHE_ENABLE=1 \
-                 USER_C_MODULES=$GITHUB_WORKSPACE/mpy_vt/modules \
-                 FROZEN_MANIFEST=$GITHUB_WORKSPACE/mpy_vt/modules/manifest.py; then
+                   USER_C_MODULES=$GITHUB_WORKSPACE/mpy_vt/modules \
+                   FROZEN_MANIFEST=$GITHUB_WORKSPACE/mpy_vt/modules/manifest.py; then
               echo "===================================================="
               echo "   COMPILATION FAILED: DUMPING LOG DIRECTORY        "
               echo "===================================================="
@@ -94,11 +113,19 @@ jobs:
         run: |
           mkdir -p release_assets
           BUILD_DIR=micropython/ports/esp32/build-LILYGO_T_DECK
-          cp $BUILD_DIR/firmware.bin release_assets/mpy_vt-${{ github.ref_name }}.bin
+
+          # Use fallback naming if running manually without a git release tag reference context
+          REF_NAME="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            REF_NAME="${{ github.event.inputs.version_tag }}"
+          fi
+
+          cp $BUILD_DIR/firmware.bin release_assets/mpy_vt-$REF_NAME.bin
           cp $BUILD_DIR/bootloader/bootloader.bin release_assets/bootloader.bin
           cp $BUILD_DIR/partition_table/partition-table.bin release_assets/partition-table.bin
+
           cd release_assets
-          zip -r ../mpy_vt-${{ github.ref_name }}.zip ./*
+          zip -r ../mpy_vt-$REF_NAME.zip ./*
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
