@@ -15,17 +15,43 @@ As a showcase of the engine's capabilities, this project includes a fully functi
 | <img src="assets/screen3.jpg" alt="minesweeper" width="400"> | <img src="assets/screen4.jpg" alt="zork" width="400"> |
 
 
+## ⚡ Quick Install (Pre-compiled Binaries)
+
+Don't want to set up a build environment? You can download and flash the latest pre-compiled firmware directly to your T-Deck.
+
+### Option A: Flash from command line
+
+1. **Download the Firmware**: Go to the [Releases Page](https://github.com/8bitmcu/mpy_vt/releases) and download the latest *.bin asset.
+
+2. **Flash to the T-Deck**: Make sure your T-Deck is plugged in via USB, then use esptool.py to write the firmware to the device. You may need to install esptool first (`pip install esptool`).
+
+```Bash
+
+esptool.py -p /dev/ttyACM0 -b 460800 --chip esp32s3 write_flash 0x0 firmware.bin
+
+```
+
+### Option B: Bootloader (Launcher)
+
+This firmware is fully compatible with [Launcher](https://bmorcelli.github.io/Launcher), an on-device application launcher and bootloader for ESP32 devices. This method is perfect if you want to seamlessly swap between `mpy_vt` and other firmware on the go without needing a PC.
+
+1. **Install Launcher**: Open a Web Serial compatible browser (like Chrome or Edge) and navigate to the Launcher website. Select Web Flasher and follow the prompts to install the bootloader directly to your T-Deck.
+2. **Prepare your SD Card**: Download the latest *.bin from the Releases Page and copy it to a MicroSD card.
+3. **Boot and Install**: Insert the MicroSD card into your T-Deck and power it on. Using the Launcher interface on the device's screen, navigate to your SD card and select the `mpy_vt` binary to flash it.
+
 ## 📝 How to use
 
 ### Trackball Usage
-- **Long Press**: Sends `KeyboardInterrupt`
 - **Short Press**: Sends `Esc`
+- **Long Press**: Sends `KeyboardInterrupt`
 - **Scroll up**: Scroll up st terminal history
 - **Scroll down**: Scroll down st terminal history
 - **Scroll left**: Scroll up st command history
 - **Scroll right**: Scroll down st command history
 
 ### Available commands
+
+You can execute the following commands directly in the MicroPython REPL:
 
 | Command | Description |
 | :---   | :--- |
@@ -171,18 +197,17 @@ cd /path/to/micropython/ports/esp32
 # Specify the BOARD as LILYGO_T_DECK to enable PSRAM / Flash support
 # Specify USER_C_MODULES and FROZEN_MANIFEST for C modules and python scripts
 make BOARD=LILYGO_T_DECK USER_C_MODULES=/path/to/mpy_vt/modules FROZEN_MANIFEST=/path/to/mpy_vt/modules/manifest.py
-```
 
-Connect your T-Deck via USB-C. Hold the "Boot" button (trackball click) while toggling the power switch if the device isn't recognized.
-
-```Bash
 # Flash the firmware to the device
 esptool.py -p /dev/ttyACM0 -b 460800 --chip esp32s3 write_flash 0x0 firmware.bin
 ```
 
 ### Option B: Building using Docker and Makefile
 
-Prerequisites:
+You do not need to install the ESP-IDF, toolchains, or MicroPython source code on your host machine if you have `Docker` and `Make` installed.
+
+#### Prerequisites:
+
 - Docker installed and running.
 - Make installed on your host system.
 - A Linux environment (or WSL2 on Windows) that allows USB device passthrough to Docker.
@@ -192,14 +217,41 @@ If you just want to build and flash the firmware, run these commands in order:
 
 ```Bash
 
-# 1. Initialize the environment (pulls MicroPython source)
+# 1. Clone this repository and enter in it
+git clone https://github.com/8bitmcu/mpy_vt.git && cd mpy_vt
+
+# 2. Initialize the environment (pulls MicroPython source)
 make init
 
-# 2. Compile the firmware
+# 3. Compile the firmware
 make build
 
-# 3. Flash to the device (ensure your T-Deck is plugged in)
+# 4. Flash to the device (ensure your T-Deck is plugged in)
 make flash
+```
+#### Makefile Reference
+
+`make init` sets up the pristine build environment. Builds the necessary local Docker image (micropython-build) and creates a persistent Docker volume. It then clones MicroPython and its submodules directly into that volume. Run this once when setting up the project, or to force a fresh pull of the MicroPython source.
+
+`make build` compiles the MicroPython firmware. Mounts your local boards/ and modules/ directories into the ESP-IDF container. It compiles the C-level modules, freezes your Python manifests, and builds the target specifically for the LILYGO_T_DECK. Outputs: The compiled binaries (firmware.bin, micropython.bin) will appear in your local `build_output/` folder.
+
+`make flash` flashes the compiled firmware to the ESP32-S3. Uses `esptool.py` inside the container to erase the flash and write the new firmware.bin to address 0x0.
+
+`make sync_files` transfers your Python application code to the device. Uses `mpremote` to recursively copy everything inside ./modules/scripts/ into the root of the T-Deck's internal flash filesystem.
+
+`make repl` opens the MicroPython interactive prompt. Connects your terminal to the device's serial output via mpremote. Press Ctrl+D inside the REPL to trigger a soft reboot, or Ctrl+] to exit back to your host terminal.
+
+`make core_dump` analyzes fatal crashes. If your device crashes and enters a bootloop or halts, this command reads the raw coredump partition directly from the flash and maps it against the .elf file in your build volume to provide a human-readable C-level stack trace.
+
+`make clean` cleans the build artifacts. Removes the compiled object files from the Docker volume and deletes the local build_output/ folder to ensure your next make build starts completely fresh.
+
+#### Overriding Variables
+
+The Makefile defaults to /dev/ttyACM0 for the USB connection. If your OS assigns a different port (e.g., /dev/ttyUSB0), you can override it inline without editing the Makefile:
+
+```Bash
+make flash PORT=/dev/ttyUSB0
+make repl PORT=/dev/ttyUSB0
 ```
 
 ## 🛠️ API Reference
