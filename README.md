@@ -148,11 +148,9 @@ refresh_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=refresh_loop
 
 ## 🔨 How to Build (T-Deck)
 
-### 1. Prerequisites
+### Option A: Building on Host machine
 
-Building this project requires a cross-compiler for the ESP32-S3 and the MicroPython source tree. Ensure you have the ESP-IDF (Espressif IoT Development Framework) installed. This project is verified on **ESP-IDF v5.5.1**.
-
-### 2. Setup and Compilation
+Building this project requires a cross-compiler for the ESP32-S3 and the MicroPython source tree. Ensure you have the ESP-IDF (Espressif IoT Development Framework) installed. This project is verified using **MicroPython v1.28.0** and **ESP-IDF v5.5.1**.
 
 ```bash
 # Clone this repository
@@ -175,15 +173,34 @@ cd /path/to/micropython/ports/esp32
 make BOARD=LILYGO_T_DECK USER_C_MODULES=/path/to/mpy_vt/modules FROZEN_MANIFEST=/path/to/mpy_vt/modules/manifest.py
 ```
 
-### 3. Flashing
-
 Connect your T-Deck via USB-C. Hold the "Boot" button (trackball click) while toggling the power switch if the device isn't recognized.
 
 ```Bash
 # Flash the firmware to the device
-idf.py -p /dev/ttyACM0 flash
+esptool.py -p /dev/ttyACM0 -b 460800 --chip esp32s3 write_flash 0x0 firmware.bin
 ```
 
+### Option B: Building using Docker and Makefile
+
+Prerequisites:
+- Docker installed and running.
+- Make installed on your host system.
+- A Linux environment (or WSL2 on Windows) that allows USB device passthrough to Docker.
+
+If you just want to build and flash the firmware, run these commands in order:
+
+
+```Bash
+
+# 1. Initialize the environment (pulls MicroPython source)
+make init
+
+# 2. Compile the firmware
+make build
+
+# 3. Flash to the device (ensure your T-Deck is plugged in)
+make flash
+```
 
 ## 🛠️ API Reference
 

@@ -1,67 +1,52 @@
-IMAGE_NAME = micropython-builder
-CONTAINER_WORKDIR = /opt/micropython
+# Path to the `modules` folder, which contains C modules and the python `scripts` folder.
 USER_MODS_DIR = $(shell pwd)/modules
+
+# Output folder for the compiled binary files
 BUILD_DIR = $(shell pwd)/build_output
 
-# Define the ESP32 port path inside the container
-ESP32_PORT_DIR = $(CONTAINER_WORKDIR)/ports/esp32
-ESP_IMAGE = espressif/idf:v5.5.1
-MPY_SOURCE_DIR = $(shell pwd)/../micropython
+# Name of the docker image used for mpremote
+MP_REMOTE = micropython-mpremote
 
+# Volume used to store the mpy code
+MPY_VOLUME = micropython_src_vol
+
+# Version of microython to compile against (must be a valid github branch)
+MPY_BRANCH = v1.28.0
+
+# ESP-IDF Docker image and version
+IDF_IMAGE = espressif/idf:v5.5.1
+
+# Used for flashing and debugging, this is the device USB port config
 PORT ?= /dev/ttyACM0
 BAUD ?= 460800
+
+# Defines which board and it's folder we're targetting
 BOARD = LILYGO_T_DECK
-BOARD_DIR = $(shell pwd)/boards/$(BOARD)
+BOARD_DIR = $(shell pwd)/boards
 
-.PHONY: all image build shell clean run
+.PHONY: init build flash sync_files clean repl core_dump
 
-image:
-	docker build -t $(IMAGE_NAME) .
+init:
+	docker build -t $(MP_REMOTE) .
+	-docker volume rm -f $(MPY_VOLUME)
+	docker volume create $(MPY_VOLUME)
+	docker run --rm -v $(MPY_VOLUME):/opt/micropython alpine \
+		sh -c "apk add --no-cache git && \
+			cd /opt/micropython && \
+			git clone --depth 1 --branch $(MPY_BRANCH) https://github.com/micropython/micropython.git . && \
+			git submodule update --init --recursive || (rm -rf * && exit 1)"
 
 build:
 	@mkdir -p $(BUILD_DIR)
-	docker run --rm \
-		-v $(USER_MODS_DIR):/opt/all_modules \
-		-v $(BUILD_DIR):$(CONTAINER_WORKDIR)/ports/unix/build-standard \
-		$(IMAGE_NAME) \
-		make USER_C_MODULES=/opt/all_modules CFLAGS_EXTRA="-DMODULE_TERM_ENABLED=1 -DMICROPY_PY_OS_DUPTERM=1"
-
-build_unix:
-	@mkdir -p $(BUILD_DIR)_unix
-	docker run --rm \
-			-v $(MPY_SOURCE_DIR):/opt/micropython \
-			-v $(USER_MODS_DIR):/opt/manifest \
-			-v $(USER_MODS_DIR)/vi:/opt/all_modules/vi \
-			-v $(USER_MODS_DIR)/scripts:/opt/all_modules/scripts \
-			-v $(BUILD_DIR):$(CONTAINER_WORKDIR)/ports/unix/build-standard \
-			$(IMAGE_NAME) \
-			/bin/bash -c "cd /opt/micropython && \
-			make -C mpy-cross && \
-			make -C ports/unix USER_C_MODULES=/opt/all_modules FROZEN_MANIFEST=/opt/manifest/manifest.py"
-
-build_esp32_base:
-	@mkdir -p $(BUILD_DIR)_base
-	docker run --rm \
-		-v $(MPY_SOURCE_DIR):/opt/micropython \
-		-v $(BUILD_DIR)_base:/opt/micropython/ports/esp32/build-$(BOARD) \
-		$(ESP_IMAGE) \
-		/bin/bash -c "git config --global --add safe.directory '*' && \
-		cd /opt/micropython && \
-		source /opt/esp/idf/export.sh && \
-		make -C mpy-cross && \
-		make -C ports/esp32 BOARD=$(BOARD)"
-
-build_esp32:
-	@mkdir -p $(BUILD_DIR)
 	rm -rf $(BUILD_DIR)/*
-	cp -r $(BOARD_DIR) $(MPY_SOURCE_DIR)/ports/esp32/boards/
 	docker run --rm \
-		-v $(MPY_SOURCE_DIR):/opt/micropython \
+		-v $(MPY_VOLUME):/opt/micropython \
 		-v $(USER_MODS_DIR):/opt/all_modules \
 		-v $(BUILD_DIR):/opt/external_build \
-		$(ESP_IMAGE) \
-		/bin/bash -c "source /opt/esp/idf/export.sh && \
-			make -C /opt/micropython/mpy-cross clean && \
+		-v $(BOARD_DIR):/opt/boards \
+		$(IDF_IMAGE) \
+		/bin/bash -c "cp -r /opt/boards/* /opt/micropython/ports/esp32/boards/ && \
+			source /opt/esp/idf/export.sh && \
 			make -C /opt/micropython/mpy-cross && \
 			make -C /opt/micropython/ports/esp32 \
 				BOARD=$(BOARD) \
@@ -69,64 +54,50 @@ build_esp32:
 				FROZEN_MANIFEST=/opt/all_modules/manifest.py && \
 			cp /opt/micropython/ports/esp32/build-$(BOARD)/firmware.bin /opt/external_build/ && \
 			cp /opt/micropython/ports/esp32/build-$(BOARD)/micropython.bin /opt/external_build/ && \
-			cp /opt/micropython/ports/esp32/build-$(BOARD)/micropython.elf /opt/external_build/ && \
 			chown -R $(shell id -u):$(shell id -g) /opt/external_build/."
 
 flash:
 	docker run --rm --privileged \
 		--device=$(PORT):$(PORT) \
 		-v $(BUILD_DIR):/flash_dir \
-		$(ESP_IMAGE) \
-		/bin/bash -c "source /opt/esp/idf/export.sh && \
-			esptool.py --chip esp32s3 --port $(PORT) --baud $(BAUD) erase_flash && \
-			esptool.py --chip esp32s3 --no-stub --port $(PORT) --baud $(BAUD) \
-				--before default_reset --after hard_reset write_flash \
-				-z --flash_mode dio --flash_freq 80m --flash_size 16MB \
-				0x0 /flash_dir/firmware.bin"
+		$(IDF_IMAGE) \
+		/bin/bash -c "esptool.py -p $(PORT) -b $(BAUD) --chip esp32s3 erase_flash && \
+			esptool.py -p $(PORT) -b $(BAUD) --chip esp32s3 write_flash 0x0 /flash_dir/firmware.bin"
 
-
-copy-files:
-	mpremote connect $(PORT) cp ./modules/scripts/main.py :main.py
-	mpremote connect $(PORT) cp ./modules/scripts/status.py :status.py
-
-shell:
-	@mkdir -p $(BUILD_DIR)
-	docker run -it --rm \
-		-v $(USER_MODS_DIR):/opt/my_modules \
-		-v $(BUILD_DIR):$(CONTAINER_WORKDIR)/ports/unix/build-standard \
-		$(IMAGE_NAME)
-
-repl:
-	docker run -it --rm \
-		-v $(USER_MODS_DIR):/opt/my_modules \
-		-v $(BUILD_DIR):/opt/micropython/ports/unix/build-standard \
-		$(IMAGE_NAME) \
-		./build-standard/micropython
+sync_files:
+	docker run --rm -it \
+		--privileged \
+		-v /dev/bus/usb:/dev/bus/usb \
+		-v $(USER_MODS_DIR):/opt/all_modules \
+		--device=$(PORT):$(PORT) \
+		$(MP_REMOTE) \
+		mpremote connect $(PORT) cp -r /opt/all_modules/scripts/ :
 
 clean:
-	docker run --rm \
-		-v $(MPY_SOURCE_DIR):/opt/micropython \
-		$(ESP_IMAGE) \
-		/bin/bash -c "cd /opt/micropython/mpy-cross && make clean"
-	
-	docker run --rm \
-		-v $(MPY_SOURCE_DIR):/opt/micropython \
-		$(ESP_IMAGE) \
-		/bin/bash -c "rm -rf /opt/micropython/ports/esp32/build-*"
+	docker run --rm -v $(MPY_VOLUME):/opt/micropython $(MP_REMOTE) \
+		/bin/bash -c "make -C /opt/micropython/mpy-cross clean"
 
-	rm -rf $(MPY_SOURCE_DIR)/ports/esp32/boards/$(BOARD)
+	docker run --rm -v $(MPY_VOLUME):/opt/micropython $(MP_REMOTE) \
+		/bin/bash -c "rm -rf /opt/micropython/ports/esp32/build-* && \
+			rm -rf /opt/micropython/ports/esp32/boards/$(BOARD)"
 
-	docker run --rm \
-		-v $(MPY_SOURCE_DIR):/opt/micropython \
-		-v $(BUILD_DIR):/opt/external_build \
-		$(ESP_IMAGE) \
-		/bin/bash -c "make -C /opt/micropython/mpy-cross clean && \
-									rm -rf /opt/micropython/ports/esp32/build* && \
-									rm -rf /opt/external_build/*"
+	rm -rf $(BUILD_DIR)/*
+
+repl:
+	docker run --rm -it \
+		--privileged \
+		-v /dev/bus/usb:/dev/bus/usb \
+		--device=$(PORT):$(PORT) \
+		$(MP_REMOTE) \
+		mpremote connect $(PORT) repl
 
 core_dump:
-	docker run --rm \
+	docker run --rm -it --privileged \
+		-v /dev/bus/usb:/dev/bus/usb \
 		--device=$(PORT):$(PORT) \
-		-v $(BUILD_DIR):/opt/external_build \
-		$(ESP_IMAGE) \
-		/bin/bash -c "esp-coredump --chip esp32s3 --port $(PORT) info_corefile /opt/external_build/micropython.elf"
+		-v $(MPY_VOLUME):/opt/micropython \
+		$(IDF_IMAGE) \
+		/bin/bash -c "source /opt/esp/idf/export.sh && \
+			espcoredump.py --chip esp32s3 --port $(PORT) \
+			info_corefile --core-format elf \
+			/opt/micropython/ports/esp32/build-$(BOARD)/micropython.elf"
