@@ -14,6 +14,8 @@ import netman
 import st7789
 import time
 import status
+import zm
+
 
 # Screen dimensions in pixel
 screen_width = 320
@@ -209,6 +211,10 @@ def telnet_retrocampus():
 retrocampus = Command(telnet_retrocampus)
 
 
+def zm_zork():
+    m = zm.ZMachine("zork1.dat")
+    m.run()
+zork = Command(zm_zork)
 
 
 # type wlan to connect to wifi
