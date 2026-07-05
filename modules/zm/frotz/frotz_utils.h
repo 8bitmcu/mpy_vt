@@ -2,6 +2,8 @@
 #define FROTZ_UTILS_H
 
 #include "../zm.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "py/misc.h"
 #include "py/mphal.h"
 #include "py/nlr.h"
@@ -19,18 +21,26 @@ static inline char *zm_basename(char *path) {
   return base ? base + 1 : path;
 }
 
-/* Yield to the RTOS for `ms` milliseconds, feeding the watchdog timer.
- * Wraps mp_hal_delay_ms() in an nlr_push/pop so that any Python exception
- * raised by scheduled callbacks (e.g. term.draw()) is silently discarded
- * instead of escaping into frotz's C call stack and causing a crash. */
+/* Yield to the RTOS, running any pending Python callbacks (e.g. term.draw())
+ * and then unconditionally handing the scheduler one tick via vTaskDelay(1).
+ *
+ * mp_hal_delay_ms(ms) alone is not sufficient: it exits as soon as the elapsed
+ * time exceeds `ms`, which means it skips vTaskDelay() entirely when
+ * mp_handle_pending() callbacks (like term.draw() at ~24 ms) take longer than
+ * the requested delay.  The explicit vTaskDelay(1) below guarantees the RTOS
+ * idle task always gets CPU time and any active watchdog timers are fed,
+ * regardless of how long the callbacks took.
+ *
+ * Any Python exception raised by a callback is caught by the nlr_push/pop and
+ * silently discarded — frotz's C call stack cannot handle Python exceptions. */
 static inline void zm_yield(mp_uint_t ms) {
   nlr_buf_t nlr;
   if (nlr_push(&nlr) == 0) {
     mp_hal_delay_ms(ms);
     nlr_pop();
   }
-  /* If nlr_push returned non-zero, a callback raised an exception.
-   * We intentionally swallow it here — frotz can't handle Python exceptions. */
+
+  vTaskDelay(1);
 }
 
 static int xgetchar(void) {

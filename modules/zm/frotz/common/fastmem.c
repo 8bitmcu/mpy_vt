@@ -580,6 +580,7 @@ void init_memory(void)
 		SET_PC(size);
 		if (zm_fread(pcp, 1, n, story_fp) != n)
 			os_fatal("Story file read error");
+    zm_yield(1);
 	}
 #endif
 

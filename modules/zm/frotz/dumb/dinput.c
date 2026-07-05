@@ -677,13 +677,13 @@ zword os_read_mouse(void) {
 } /* os_read_mouse */
 
 void os_tick(void) {
-  /* Feed the watchdog timer periodically so the RTOS idle task gets CPU
-   * time.  os_tick() is called after every z-machine opcode, so this
-   * check is essentially free when the game is running quickly. */
+  /* Yield to the RTOS every 100ms so the idle task gets CPU time and any
+   * active watchdog timers are fed.  zm_yield(1) calls mp_hal_delay_ms(1)
+   * which invokes vTaskDelay(), actually handing control to the scheduler */
   static mp_uint_t last_feed = 0;
   mp_uint_t now = mp_hal_ticks_ms();
   if (now - last_feed >= 100) {
     last_feed = now;
-    zm_yield(0);
+    zm_yield(1);
   }
 } /* os_tick */
