@@ -19,9 +19,21 @@ static inline char *zm_basename(char *path) {
   return base ? base + 1 : path;
 }
 
-static int xgetchar(void) {
-  int c;
+/* Yield to the RTOS for `ms` milliseconds, feeding the watchdog timer.
+ * Wraps mp_hal_delay_ms() in an nlr_push/pop so that any Python exception
+ * raised by scheduled callbacks (e.g. term.draw()) is silently discarded
+ * instead of escaping into frotz's C call stack and causing a crash. */
+static inline void zm_yield(mp_uint_t ms) {
+  nlr_buf_t nlr;
+  if (nlr_push(&nlr) == 0) {
+    mp_hal_delay_ms(ms);
+    nlr_pop();
+  }
+  /* If nlr_push returned non-zero, a callback raised an exception.
+   * We intentionally swallow it here — frotz can't handle Python exceptions. */
+}
 
+static int xgetchar(void) {
   while (1) {
     uint8_t byte;
     int errcode;
@@ -30,27 +42,20 @@ static int xgetchar(void) {
         current_frotz_instance->stream_obj, &byte, 1, &errcode);
 
     if (n != (mp_uint_t)-1 && n > 0) {
-      c = byte;
-    } else {
-      mp_hal_delay_ms(10);
-      continue;
+      if (byte == '\r') {
+        // Enter: echo a newline and return \n for frotz's dumb_getline().
+        mp_hal_stdout_tx_strn("\r\n", 2);
+        return '\n';
+      }
+      // Echo printable characters to the display as they are typed.
+      if (byte >= 32 && byte < 127) {
+        mp_hal_stdout_tx_strn((const char *)&byte, 1);
+      }
+      return (int)byte;
     }
 
-    if (c != EOF) {
-      return c;
-    }
-
-    if (feof(stdin)) {
-      fprintf(stderr, "\nEOT\n");
-      os_quit(EXIT_SUCCESS);
-    }
-
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      mp_hal_delay_ms(10);
-      continue;
-    }
-
-    os_fatal(strerror(errno));
+    // No key available: yield to the RTOS so the WDT gets fed.
+    zm_yield(10);
   }
 }
 

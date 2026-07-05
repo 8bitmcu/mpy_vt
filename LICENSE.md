@@ -40,15 +40,21 @@ The `vi` implementation is derived from Toybox.
 * **License:** **0BSD** (Zero-Clause BSD).
 * **Summary:** Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted.
 
-### 3. st7789_mpy
+### 3. frotz (Zmachine interpreter)
+The Z-Machine interpreter is based on Frotz.
+* **Copyright:** 1995-1997 Stefan Jokisch, 1998-present David Griffith and contributors.
+* **License:** **GNU General Public License v2.0 (or later)**.
+* **Summary:** Frotz is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.
+
+### 4. st7789_mpy
 * **Copyright:** Russ Hughes.
 * **License:** **MIT License**.
 
-### 4. Terminus Font
+### 5. Terminus Font
 * **Copyright:** (c) 2020 Dimitar Zhekov. 
 * **License:** **SIL Open Font License 1.1**.
 
-### 5. MicroPython
+### 6. MicroPython
 * **Copyright:** (c) Damien P. George.
 * **License:** **MIT License**.
 
@@ -56,3 +62,7 @@ The `vi` implementation is derived from Toybox.
 
 ### Implementation Note for the T-Deck
 While the original `vi` code follows the 0BSD license and the `st` engine follows the MIT/X Consortium license, the specific architectural modifications in this repository—including the **MicroPython VFS Bridge**, **NLR Exception Guarding**, **Zero-allocation Status Bar**, and **GC-safe Memory Management**—are contributed under the project's primary MIT license.
+
+---
+
+While the original source code for mpy_vt is provided under the MIT license, compiling it with the optional frotz module creates a combined work that falls under the GNU General Public License v2.0 (GPL-2.0) upon distribution.

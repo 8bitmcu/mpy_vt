@@ -14,7 +14,6 @@ import netman
 import st7789
 import time
 import status
-import zm
 
 
 # Screen dimensions in pixel
@@ -40,7 +39,7 @@ machine.Pin(39, machine.Pin.OUT, value=1)  # SD CS
 machine.Pin(38, machine.Pin.IN, machine.Pin.PULL_UP)  # MISO pull-up
 time.sleep(0.1)
 
-# Mount SD Card
+# Mount SD Card (Experimental; doesn't seem to always work)
 try:
     import sdcard
     sd_spi = machine.SoftSPI(baudrate=400000, sck=machine.Pin(40), mosi=machine.Pin(41), miso=machine.Pin(38))
@@ -238,7 +237,9 @@ retrocampus = Command(telnet_retrocampus)
 
 
 def zm_zork():
-    m = zm.ZMachine("zork1.dat", kvm)
+    import zm
+    m = zm.ZMachine("/sd/zork1.dat", kvm, cols, rows)
     m.run()
+
 zork = Command(zm_zork)
 

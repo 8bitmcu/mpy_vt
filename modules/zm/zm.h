@@ -9,6 +9,9 @@ typedef struct _zm_zm_obj_t {
   mp_obj_base_t base;
   mp_obj_t stream_obj;
   const mp_stream_p_t *stream_p;
+  uint16_t width;
+  uint16_t height;
+  const char *fname;
 } zm_zm_obj_t;
 
 #endif
