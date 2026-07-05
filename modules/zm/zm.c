@@ -30,7 +30,7 @@ static mp_obj_t zm_make_new(const mp_obj_type_t *type, size_t n_args,
 
 // 3. A method: z.run()
 static mp_obj_t zm_run(mp_obj_t self_in) {
-  char *dummy_argv[] = {"dfrotz", "game1.dat", NULL};
+  char *dummy_argv[] = {"dfrotz", "/sd/zork1.dat", NULL};
 
   if (setjmp(frotz_exit_env) == 0) {
     frotz_main(2, dummy_argv);

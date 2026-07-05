@@ -29,6 +29,7 @@
 
 #include <unistd.h>
 #include <math.h>
+#include "../frotz_utils.h"
 
 #ifndef NO_BLORB
 
@@ -68,7 +69,7 @@ bb_err_t dumb_blorb_init(char *filename)
 
 	blorb_map = NULL;
 
-	if ((fp = fopen(filename, "rb")) == NULL)
+	if ((fp = zm_fopen(filename, "rb")) == NULL)
 		return bb_err_Read;
 
 	/* Is this really a Blorb file?
@@ -79,7 +80,7 @@ bb_err_t dumb_blorb_init(char *filename)
 		f_setup.exec_in_blorb = 1;	/* for zcode in the blorb */
 		blorb_fp = fp;
 	} else { /* Not a Blorb.  This must be a ZCODE file. */
-		fclose(fp);
+		zm_fclose(fp);
 		len1 = strlen(filename) + strlen(EXT_BLORB);
 		len2 = strlen(filename) + strlen(EXT_BLORB3);
 		/* Was a Blorb file name provided? */
@@ -95,15 +96,15 @@ bb_err_t dumb_blorb_init(char *filename)
 		}
 
 		/* Check if foo.blb is there. */
-		if ((fp = fopen(mystring, "rb")) == NULL) {
+		if ((fp = zm_fopen(mystring, "rb")) == NULL) {
 			p = strrchr(mystring, '.');
 			if (p != NULL) *p = '\0';
 			strncat(mystring, EXT_BLORB3, len2);
-			if (!(fp = fopen(mystring, "rb")))
+			if (!(fp = zm_fopen(mystring, "rb")))
 				return bb_err_NoBlorb;
 		}
 		if (!isblorb(fp)) {
-			fclose(fp);
+			zm_fclose(fp);
 			return bb_err_NoBlorb;
 		}
 		/* At this point we know that we're using a naked zcode file */
@@ -111,7 +112,7 @@ bb_err_t dumb_blorb_init(char *filename)
 		blorb_fp = fp;
 		f_setup.use_blorb = 1;
 		if (f_setup.blorb_file == NULL && !quiet_mode)
-			printf("Found Blorb file named %s.\n", mystring);
+			zm_printf("Found Blorb file named %s.\r\n", mystring);
 
 		/* Save the blorb file here for later reference. */
 		f_setup.blorb_file = strdup(mystring);
@@ -134,7 +135,7 @@ bb_err_t dumb_blorb_init(char *filename)
 		f_setup.exec_in_blorb = 1;
 		f_setup.blorb_file = strdup(f_setup.story_file);
 		if (!quiet_mode)
-			printf("Found zcode chunk in Blorb file.\n");
+			zm_printf("Found zcode chunk in Blorb file.\r\n");
 	}
 
 	return blorb_err;
@@ -154,12 +155,12 @@ static int isblorb(FILE *fp)
 	if (fp == NULL)
 		return 0;
 
-	fread(mybuf, 1, 4, fp);
+	zm_fread(mybuf, 1, 4, fp);
 	if (strncmp(mybuf, "FORM", 4))
 		return 0;
 
-	fseek(fp, 4, SEEK_CUR);
-	fread(mybuf, 1, 4, fp);
+	zm_fseek(fp, 4, SEEK_CUR);
+	zm_fread(mybuf, 1, 4, fp);
 
 	if (strncmp(mybuf, "IFRS", 4))
 		return 0;

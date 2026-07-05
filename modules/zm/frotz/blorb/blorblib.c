@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "../common/frotz.h"
+#include "../frotz_utils.h"
 
 #ifndef NO_BLORB
 
@@ -87,11 +88,11 @@ bb_err_t bb_create_map(FILE *file, bb_map_t **newmap)
 
     /* First, chew through the file and index the chunks. */
 
-    err = fseek(file, 0, 0);
+    err = zm_fseek(file, 0, 0);
     if (err)
         return bb_err_Read;
 
-    readlen = fread(buffer, sizeof(uint32), 3, file);
+    readlen = zm_fread(buffer, sizeof(uint32), 3, file);
     if (readlen != 3)
         return bb_err_Read;
 
@@ -112,11 +113,11 @@ bb_err_t bb_create_map(FILE *file, bb_map_t **newmap)
         int chunum;
         bb_chunkdesc_t *chu;
 
-        err = fseek(file, nextpos, 0);
+        err = zm_fseek(file, nextpos, 0);
         if (err)
             return bb_err_Read;
 
-        readlen = fread(buffer, sizeof(uint32), 2, file);
+        readlen = zm_fread(buffer, sizeof(uint32), 2, file);
         if (readlen != 2)
             return bb_err_Read;
 
@@ -608,11 +609,11 @@ bb_err_t bb_load_chunk_by_number(bb_map_t *map, int method, bb_result_t *res,
                 if (!dat)
                     return bb_err_Alloc;
 
-                err = fseek(map->file, chu->datpos, 0);
+                err = zm_fseek(map->file, chu->datpos, 0);
                 if (err)
                     return bb_err_Read;
 
-                readlen = fread(dat, 1, chu->len, map->file);
+                readlen = zm_fread(dat, 1, chu->len, map->file);
                 if (readlen != chu->len)
                     return bb_err_Read;
 

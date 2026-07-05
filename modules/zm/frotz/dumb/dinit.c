@@ -35,27 +35,27 @@ static void usage(void);
 static void print_version(void);
 
 #define INFORMATION "\
-An interpreter for all Infocom and other Z-Machine games.\n\
+An interpreter for all Infocom and other Z-Machine games.\r\n\
 \n\
-Syntax: dfrotz [options] story-file [blorb file]\n\
-  -a   watch attribute setting    \t -q   quiet mode (no startup messages)\n\
-  -A   watch attribute testing    \t -r <option> Set runtime options\n\
-  -f <type> type of format codes  \t -R <path> restricted read/write\n\
-  -h # screen height              \t -s # random number seed value\n\
-  -i   ignore fatal errors        \t -S # transcript width\n\
-  -I # interpreter number         \t -t   set Tandy bit\n\
-  -o   watch object movement      \t -T   start transcript on startup\n\
-  -O   watch object locating      \t -u # slots for multiple undo\n\
-  -L <file> load this save file   \t -v   show version information\n\
-  -m   turn off MORE prompts      \t -w # screen width\n\
-  -n <file> set transcript filename\t -x   expand abbreviations g/x/z\n\
-  -p   plain ASCII output only    \t -Z # error checking (see below)\n\
+Syntax: dfrotz [options] story-file [blorb file]\r\n\
+  -a   watch attribute setting    \t -q   quiet mode (no startup messages)\r\n\
+  -A   watch attribute testing    \t -r <option> Set runtime options\r\n\
+  -f <type> type of format codes  \t -R <path> restricted read/write\r\n\
+  -h # screen height              \t -s # random number seed value\r\n\
+  -i   ignore fatal errors        \t -S # transcript width\r\n\
+  -I # interpreter number         \t -t   set Tandy bit\r\n\
+  -o   watch object movement      \t -T   start transcript on startup\r\n\
+  -O   watch object locating      \t -u # slots for multiple undo\r\n\
+  -L <file> load this save file   \t -v   show version information\r\n\
+  -m   turn off MORE prompts      \t -w # screen width\r\n\
+  -n <file> set transcript filename\t -x   expand abbreviations g/x/z\r\n\
+  -p   plain ASCII output only    \t -Z # error checking (see below)\r\n\
   -P   alter piracy opcode\n"
 
 #define INFO2 "\
-Error checking: 0 none, 1 first only (default), 2 all, 3 exit after any error.\n\
-For more options and explanations, please read the manual page.\n\n\
-While running, enter \"\\help\" to list the runtime escape sequences.\n"
+Error checking: 0 none, 1 first only (default), 2 all, 3 exit after any error.\r\n\
+For more options and explanations, please read the manual page.\r\n\n\
+While running, enter \"\\help\" to list the runtime escape sequences.\r\n"
 
 
 static int user_text_width = 80;
@@ -163,7 +163,7 @@ void os_process_arguments(int argc, char *argv[])
 			f_setup.tandy = 1;
 			break;
 		case 'T':
-			zm_printf("Starting transcript from the beginning.\n");
+			zm_printf("Starting transcript from the beginning.\r\n");
 			f_setup.script_now = 1;
 			break;
 		case 'u':
@@ -201,32 +201,32 @@ void os_process_arguments(int argc, char *argv[])
 	if (!quiet_mode) {
 		switch (f_setup.format) {
 		case FORMAT_NORMAL:
-			zm_printf("Using normal formatting.\n");
+			zm_printf("Using normal formatting.\r\n");
 			break;
 		case FORMAT_IRC:
-			zm_printf("Using IRC formatting.\n");
+			zm_printf("Using IRC formatting.\r\n");
 			break;
 		case FORMAT_ANSI:
-			zm_printf("Using ANSI formatting.\n");
+			zm_printf("Using ANSI formatting.\r\n");
 			break;
 		case FORMAT_BBCODE:
-			zm_printf("Using Discourse BBCode formatting.\n");
+			zm_printf("Using Discourse BBCode formatting.\r\n");
 			f_setup.format = FORMAT_BBCODE;
 			break;
 		case FORMAT_UNKNOWN:
-			zm_printf("Unknown formatting \"%s\".  Using normal formatting instead.\n", format_orig);
+			zm_printf("Unknown formatting \"%s\".  Using normal formatting instead.\r\n", format_orig);
 			break;
 		case FORMAT_DISABLED:
-			zm_printf("Format selection disabled at compile time.\n");
+			zm_printf("Format selection disabled at compile time.\r\n");
 			break;
 		default:
-			zm_printf("Something else happened with format selection.\n");
-			zm_printf("This should not happen.\n");
+			zm_printf("Something else happened with format selection.\r\n");
+			zm_printf("This should not happen.\r\n");
 			break;
 		}
 
 		if (f_setup.script_now)
-			zm_printf("Starting transcript from the beginning.\n");
+			zm_printf("Starting transcript from the beginning.\r\n");
 
 	}
 	if (f_setup.format == FORMAT_UNKNOWN || f_setup.format == FORMAT_DISABLED)
@@ -244,11 +244,11 @@ void os_process_arguments(int argc, char *argv[])
 		f_setup.blorb_file = strdup(argv[zoptind+1]);
 
 	if (!quiet_mode) {
-		zm_printf("Loading %s.\n", f_setup.story_file);
+		zm_printf("Loading %s.\r\n", f_setup.story_file);
 
 #ifndef NO_BLORB
 	if (f_setup.blorb_file != NULL)
-		zm_printf("Also loading %s.\n", f_setup.blorb_file);
+		zm_printf("Also loading %s.\r\n", f_setup.blorb_file);
 #endif
 	}
 
@@ -367,9 +367,9 @@ void os_warn (const char *s, ...)
 void os_fatal (const char *s, ...)
 {
 	dumb_show_screen(FALSE);
-	fprintf(stderr, "\nFatal error: %s\n", s);
+	zm_printf("\nFatal error: %s\r\n", s);
 	if (f_setup.ignore_errors)
-		fprintf(stderr, "Continuing anyway...\n");
+		zm_printf("Continuing anyway...\r\n");
 	else
 		os_quit(EXIT_FAILURE);
 } /* os_fatal */
@@ -385,25 +385,25 @@ FILE *os_load_story(void)
 		/* printf("No blorb file found.\n\n"); */
 		break;
 	case bb_err_Format:
-		zm_printf("Blorb file loaded, but unable to build map.\n\n");
+		zm_printf("Blorb file loaded, but unable to build map.\r\n\n");
 		break;
 	case bb_err_NotFound:
-		zm_printf("Blorb file loaded, but lacks executable chunk.\n\n");
+		zm_printf("Blorb file loaded, but lacks executable chunk.\r\n\n");
 		break;
 	case bb_err_None:
 		/* printf("No blorb errors.\n\n"); */
 		break;
 	}
 
-	fp = fopen(f_setup.story_file, "rb");
+	fp = zm_fopen(f_setup.story_file, "rb");
 
 	/* Is this a Blorb file containing Zcode? */
 	if (f_setup.exec_in_blorb)
-		fseek(fp, blorb_res.data.startpos, SEEK_SET);
+		zm_fseek(fp, blorb_res.data.startpos, SEEK_SET);
 
 	return fp;
 #else
-	return fopen(f_setup.story_file, "rb");
+	return zm_fopen(f_setup.story_file, "rb");
 #endif
 } /* os_load_story */
 
@@ -419,21 +419,21 @@ int os_storyfile_seek(FILE * fp, long offset, int whence)
 	if (f_setup.exec_in_blorb) {
 		switch (whence) {
 		case SEEK_END:
-			return fseek(fp, blorb_res.data.startpos + blorb_res.length + offset, SEEK_SET);
+			return zm_fseek(fp, blorb_res.data.startpos + blorb_res.length + offset, SEEK_SET);
 			break;
 		case SEEK_CUR:
-			return fseek(fp, offset, SEEK_CUR);
+			return zm_fseek(fp, offset, SEEK_CUR);
 			break;
 		case SEEK_SET:
 			/* SEEK_SET falls through to default */
 		default:
-			return fseek(fp, blorb_res.data.startpos + offset, SEEK_SET);
+			return zm_fseek(fp, blorb_res.data.startpos + offset, SEEK_SET);
 			break;
 		}
 	} else
-		return fseek(fp, offset, whence);
+		return zm_fseek(fp, offset, whence);
 #else
-	return fseek(fp, offset, whence);
+	return zm_fseek(fp, offset, whence);
 #endif
 } /* os_storyfile_seek */
 
@@ -447,11 +447,11 @@ int os_storyfile_tell(FILE * fp)
 #ifndef NO_BLORB
 	/* Is this a Blorb file containing Zcode? */
 	if (f_setup.exec_in_blorb)
-		return ftell(fp) - blorb_res.data.startpos;
+		return zm_ftell(fp) - blorb_res.data.startpos;
 	else
-		return ftell(fp);
+		return zm_ftell(fp);
 #else
-	return ftell(fp);
+	return zm_ftell(fp);
 #endif
 } /* os_storyfile_tell */
 
@@ -464,7 +464,7 @@ void os_init_setup(void)
 
 static void usage(void)
 {
-	zm_printf("FROTZ V%s - Dumb interface.\n", VERSION);
+	zm_printf("FROTZ V%s - Dumb interface.\r\n", VERSION);
 	zm_printf(INFORMATION);
 	zm_printf(INFO2);
 	return;
@@ -473,17 +473,17 @@ static void usage(void)
 
 static void print_version(void)
 {
-	zm_printf("FROTZ V%s     Dumb interface.\n", VERSION);
-	zm_printf("Commit date:    %s\n", GIT_DATE);
-	zm_printf("Git commit:     %s\n", GIT_HASH);
-	zm_printf("Notes:          %s\n", RELEASE_NOTES);
-	zm_printf("  Frotz was originally written by Stefan Jokisch.\n");
-	zm_printf("  It complies with standard 1.1 of the Z-Machine Standard.\n");
-	zm_printf("  It was ported to Unix by Galen Hazelwood.\n");
-	zm_printf("  It is distributed under the GNU General Public License version 2 or\n");
-	zm_printf("    (at your option) any later version.\n");
-	zm_printf("  This software is offered as-is with no warranty or liability.\n");
-	zm_printf("  The core and dumb port are maintained by David Griffith.\n");
-	zm_printf("  Frotz's homepage is https://661.org/proj/if/frotz.\n\n");
+	zm_printf("FROTZ V%s     Dumb interface.\r\n", VERSION);
+	zm_printf("Commit date:    %s\r\n", GIT_DATE);
+	zm_printf("Git commit:     %s\r\n", GIT_HASH);
+	zm_printf("Notes:          %s\r\n", RELEASE_NOTES);
+	zm_printf("  Frotz was originally written by Stefan Jokisch.\r\n");
+	zm_printf("  It complies with standard 1.1 of the Z-Machine Standard.\r\n");
+	zm_printf("  It was ported to Unix by Galen Hazelwood.\r\n");
+	zm_printf("  It is distributed under the GNU General Public License version 2 or\r\n");
+	zm_printf("    (at your option) any later version.\r\n");
+	zm_printf("  This software is offered as-is with no warranty or liability.\r\n");
+	zm_printf("  The core and dumb port are maintained by David Griffith.\r\n");
+	zm_printf("  Frotz's homepage is https://661.org/proj/if/frotz.\r\n\n");
 	return;
 } /* print_version */

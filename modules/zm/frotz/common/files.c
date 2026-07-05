@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "../frotz_utils.h"
 
 #ifndef SEEK_SET
 #define SEEK_SET 0
@@ -81,9 +82,9 @@ void script_open(bool noprompt)
 		f_setup.script_name = strdup(f_setup.script_name_override);
 
 	/* Opening in "at" mode doesn't work for script_erase_input... */
-	if ((sfp = fopen (f_setup.script_name, "r+t")) != NULL ||
-	    (sfp = fopen(f_setup.script_name, "w+t")) != NULL) {
-		fseek (sfp, 0, SEEK_END);
+	if ((sfp = zm_fopen (f_setup.script_name, "r+t")) != NULL ||
+	    (sfp = zm_fopen(f_setup.script_name, "w+t")) != NULL) {
+		zm_fseek (sfp, 0, SEEK_END);
 		z_header.flags |= SCRIPTING_FLAG;
 		script_valid = TRUE;
 		ostream_script = TRUE;
@@ -106,7 +107,7 @@ void script_close(void)
 {
 	z_header.flags &= ~SCRIPTING_FLAG;
 	SET_WORD(H_FLAGS, z_header.flags);
-	fclose (sfp);
+	zm_fclose (sfp);
 	ostream_script = FALSE;
 } /* script_close */
 
@@ -261,7 +262,7 @@ void script_erase_input(const zchar *buf)
 	for (i = 0, width = 0; buf[i] != 0; i++)
 		width++;
 
-	fseek(sfp, -width, SEEK_CUR); script_width -= width;
+	zm_fseek(sfp, -width, SEEK_CUR); script_width -= width;
 } /* script_erase_input */
 
 
@@ -308,7 +309,7 @@ void record_open(void)
 		free(f_setup.command_name);
 		f_setup.command_name = strdup(new_name);
 
-		if ((rfp = fopen(new_name, "wt")) != NULL)
+		if ((rfp = zm_fopen(new_name, "wt")) != NULL)
 			ostream_record = TRUE;
 		else
 			print_string("Cannot open file\n");
@@ -324,7 +325,7 @@ void record_open(void)
  */
 void record_close (void)
 {
-    fclose (rfp); ostream_record = FALSE;
+    zm_fclose (rfp); ostream_record = FALSE;
 
 }/* record_close */
 
@@ -421,7 +422,7 @@ void replay_open(void)
 		free(f_setup.command_name);
 		f_setup.command_name = strdup(new_name);
 
-		if ((pfp = fopen(new_name, "rt")) != NULL) {
+		if ((pfp = zm_fopen(new_name, "rt")) != NULL) {
 			set_more_prompts(read_yes_or_no("Do you want MORE prompts"));
 			istream_replay = TRUE;
 		} else
@@ -439,7 +440,7 @@ void replay_open(void)
 void replay_close(void)
 {
 	set_more_prompts(TRUE);
-	fclose (pfp);
+	zm_fclose (pfp);
 	istream_replay = FALSE;
 } /* replay_close */
 

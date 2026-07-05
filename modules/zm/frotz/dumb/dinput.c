@@ -102,7 +102,7 @@ static int xgetchar(void)
 			os_fatal(strerror(errno));
 		}
 #else
-		os_fatal(strerror(errno));
+		os_fatal("Failed to get character");
 #endif
 	}
 	return c;
@@ -126,7 +126,7 @@ static void dumb_getline(char *s)
 	p[0] = '\0';
 	while ((c = xgetchar()) != '\n')
 		;
-	zm_printf("Line too long, truncated to %s\n", s - INPUT_BUFFER_SIZE);
+	zm_printf("Line too long, truncated to %s\r\n", s - INPUT_BUFFER_SIZE);
 } /* dumb_getline */
 
 
@@ -209,14 +209,14 @@ bool dumb_handle_setting(const char *setting, bool show_cursor, bool startup)
 {
 	if (!strncmp(setting, "sf", 2)) {
 		speed = atof(&setting[2]);
-		zm_printf("Speed Factor %g\n", speed);
+		zm_printf("Speed Factor %g\r\n", speed);
 	} else if (!strncmp(setting, "mp", 2)) {
 		toggle(&do_more_prompts, setting[2]);
-		zm_printf("More prompts %s\n", do_more_prompts ? "ON" : "OFF");
+		zm_printf("More prompts %s\r\n", do_more_prompts ? "ON" : "OFF");
 	} else {
 		if (!strcmp(setting, "set")) {
-			zm_printf("Speed Factor %g\n", speed);
-			zm_printf("More Prompts %s\n",
+			zm_printf("Speed Factor %g\r\n", speed);
+			zm_printf("More Prompts %s\r\n",
 				do_more_prompts ? "ON" : "OFF");
 		}
 		return dumb_output_handle_setting(setting, show_cursor, startup);
@@ -574,7 +574,7 @@ char *os_read_file_name (const char *default_name, int flag)
 			buf = strndup(fullpath, MAX_FILE_NAME);
 
 		if (strlen(buf) > MAX_FILE_NAME) {
-			zm_printf("Filename too long\n");
+			zm_printf("Filename too long\r\n");
 			free(buf);
 			return NULL;
 		}
@@ -624,8 +624,8 @@ char *os_read_file_name (const char *default_name, int flag)
 
 	/* Warn if overwriting a file.  */
 	if ((flag == FILE_SAVE || flag == FILE_SAVE_AUX || flag == FILE_RECORD)
-		&& ((fp = fopen(file_name, "rb")) != NULL)) {
-		fclose (fp);
+		&& ((fp = zm_fopen(file_name, "rb")) != NULL)) {
+		zm_fclose (fp);
 		dumb_read_misc_line(fullpath, "Overwrite existing file? ");
 		if (tolower(fullpath[0]) != 'y')
 			return NULL;

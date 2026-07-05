@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "frotz.h"
+#include "../frotz_utils.h"
 
 #ifndef MSDOS_16BIT
 
@@ -478,13 +479,13 @@ void init_memory(void)
 #ifdef TOPS20
 	/* One byte at a time for 36-bit sanitization */
 	for (i = 0; i < 64 ; i++) {
-		if (fread(zmp + i, 1, 1, story_fp) != 1) {
+		if (zm_fread(zmp + i, 1, 1, story_fp) != 1) {
 			os_fatal ("Story file read error");
 		}
 		zmp[i] &= 0xff; /* No nine-bit craziness here! */
 	}
 #else
-	if (fread(zmp, 1, 64, story_fp) != 64)
+	if (zm_fread(zmp, 1, 64, story_fp) != 64)
 		os_fatal("Story file read error");
 #endif
 
@@ -565,7 +566,7 @@ void init_memory(void)
 #ifdef TOPS20
 	/* Load and sanitize story file one byte at a time. */
 	for (size = 64; size < story_size; size++) {
-		if (fread(zmp + size, 1, 1, story_fp) != 1) {
+		if (zm_fread(zmp + size, 1, 1, story_fp) != 1) {
 			os_fatal("Story file read error");
 		}
 		zmp[size] &= 0xff; /* No nine-bit craziness here! */
@@ -577,7 +578,7 @@ void init_memory(void)
 		if (story_size - size < 0x8000)
 			n = (unsigned) (story_size - size);
 		SET_PC(size);
-		if (fread(pcp, 1, n, story_fp) != n)
+		if (zm_fread(pcp, 1, n, story_fp) != n)
 			os_fatal("Story file read error");
 	}
 #endif
@@ -589,7 +590,7 @@ void init_memory(void)
 #ifdef TOPS20
 	/* Internal verification; is this where the PDP-10 is blowing up? */
 	/* Sum all bytes in story file except header bytes */
-	fseek(story_fp, 64, SEEK_SET);
+	zm_fseek(story_fp, 64, SEEK_SET);
 	for (li = 64; li < story_size; li++)
 		checksum = (checksum + (fgetc(story_fp) & 0xff)) & 0xffff;
 	if (checksum != z_header.checksum)
@@ -678,7 +679,7 @@ static void free_undo(int count)
 void reset_memory(void)
 {
 	if (story_fp != NULL)
-		fclose(story_fp);
+		zm_fclose(story_fp);
 	story_fp = NULL;
 
 	if (undo_diff) {
@@ -764,7 +765,7 @@ void z_restart(void)
 
 	if (!first_restart) {
 		os_storyfile_seek(story_fp, 0, SEEK_SET);
-		if (fread(zmp, 1, z_header.dynamic_size, story_fp) != z_header.dynamic_size)
+		if (zm_fread(zmp, 1, z_header.dynamic_size, story_fp) != z_header.dynamic_size)
 			os_fatal ("Story file read error");
 	} else first_restart = FALSE;
 
@@ -862,14 +863,14 @@ void z_restore(void)
 		}
 
 		/* Open auxiliary file */
-		if ((gfp = fopen (new_name, "rb")) == NULL)
+		if ((gfp = zm_fopen (new_name, "rb")) == NULL)
 			goto finished;
 
 		/* Load auxiliary file */
-		success = fread (zmp + zargs[0], 1, zargs[1], gfp);
+		success = zm_fread (zmp + zargs[0], 1, zargs[1], gfp);
 
 		/* Close auxiliary file */
-		fclose (gfp);
+		zm_fclose (gfp);
 	} else {
 	/*
 	 * long pc;
@@ -885,7 +886,7 @@ void z_restore(void)
 		f_setup.save_name = strdup(new_name);
 
 		/* Open game file */
-		if ((gfp = fopen(new_name, "rb")) == NULL)
+		if ((gfp = zm_fopen(new_name, "rb")) == NULL)
 			goto finished;
 		success = restore_quetzal(gfp, story_fp);
 		if ((short) success >= 0) {
@@ -1101,14 +1102,14 @@ void z_save(void)
 		}
 
 		/* Open auxiliary file */
-		if ((gfp = fopen(new_name, "wb")) == NULL)
+		if ((gfp = zm_fopen(new_name, "wb")) == NULL)
 			goto finished;
 
 		/* Write auxiliary file */
 		success = fwrite(zmp + zargs[0], zargs[1], 1, gfp);
 
 		/* Close auxiliary file */
-		fclose(gfp);
+		zm_fclose(gfp);
 
 	} else {
 	/*
@@ -1127,13 +1128,13 @@ void z_save(void)
 		f_setup.save_name = strdup(new_name);
 
 		/* Open game file */
-		if ((gfp = fopen(new_name, "wb")) == NULL)
+		if ((gfp = zm_fopen(new_name, "wb")) == NULL)
 			goto finished;
 
 		success = save_quetzal(gfp, story_fp);
 
 		/* Close game file and check for errors */
-		if (fclose(gfp) == EOF || ferror(story_fp)) {
+		if (zm_fclose(gfp) == EOF || ferror(story_fp)) {
 			print_string("Error writing save file\n");
 			goto finished;
 		}

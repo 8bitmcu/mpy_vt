@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "frotz.h"
+#include "../frotz_utils.h"
 
 #ifndef MSDOS_16BIT
 
@@ -395,14 +396,14 @@ zword restore_quetzal(FILE * svf, FILE * stf)
 				break;
 			}
 			/* Already GOT_MEMORY */
-			(void)fseek(svf, currlen, SEEK_CUR);	/* Skip chunk. */
+			(void)zm_fseek(svf, currlen, SEEK_CUR);	/* Skip chunk. */
 			break;
 			/* `UMem' uncompressed memory chunk; load it. */
 		case ID_UMem:
 			if (!(progress & GOT_MEMORY)) {	/* Don't complain if two. */
 				/* Must be exactly the right size. */
 				if (currlen == z_header.dynamic_size) {
-					if (fread(zmp, currlen, 1, svf) == 1) {
+					if (zm_fread(zmp, currlen, 1, svf) == 1) {
 						progress |= GOT_MEMORY;	/* Only on success. */
 						break;
 					}
@@ -412,11 +413,11 @@ zword restore_quetzal(FILE * svf, FILE * stf)
 					    ("`UMem' chunk wrong size!\n");
 			}
 			/* Already GOT_MEMORY */
-			(void)fseek(svf, currlen, SEEK_CUR);	/* Skip chunk. */
+			(void)zm_fseek(svf, currlen, SEEK_CUR);	/* Skip chunk. */
 			break;
 			/* Unrecognised chunk type; skip it. */
 		default:
-			(void)fseek(svf, currlen, SEEK_CUR);	/* Skip chunk. */
+			(void)zm_fseek(svf, currlen, SEEK_CUR);	/* Skip chunk. */
 			break;
 		}
 		if (skip)
@@ -474,7 +475,7 @@ zword save_quetzal(FILE * svf, FILE * stf)
 		return 0;
 
 	/* Write `CMem' chunk. */
-	if ((cmempos = ftell(svf)) < 0)
+	if ((cmempos = zm_ftell(svf)) < 0)
 		return 0;
 	if (!write_chnk(svf, ID_CMem, 0))
 		return 0;
@@ -515,7 +516,7 @@ zword save_quetzal(FILE * svf, FILE * stf)
 			return 0;
 
 	/* Write `Stks' chunk. You are not expected to understand this. ;) */
-	if ((stkspos = ftell(svf)) < 0)
+	if ((stkspos = zm_ftell(svf)) < 0)
 		return 0;
 	if (!write_chnk(svf, ID_Stks, 0))
 		return 0;
@@ -592,13 +593,13 @@ zword save_quetzal(FILE * svf, FILE * stf)
 	ifzslen = 3 * 8 + 4 + 14 + cmemlen + stkslen;
 	if (cmemlen & 1)
 		++ifzslen;
-	(void)fseek(svf, 4, SEEK_SET);
+	(void)zm_fseek(svf, 4, SEEK_SET);
 	if (!write_long(svf, ifzslen))
 		return 0;
-	(void)fseek(svf, cmempos + 4, SEEK_SET);
+	(void)zm_fseek(svf, cmempos + 4, SEEK_SET);
 	if (!write_long(svf, cmemlen))
 		return 0;
-	(void)fseek(svf, stkspos + 4, SEEK_SET);
+	(void)zm_fseek(svf, stkspos + 4, SEEK_SET);
 	if (!write_long(svf, stkslen))
 		return 0;
 

@@ -30,21 +30,47 @@ usable_height = screen_height - status_height
 rows = usable_height // rfont.HEIGHT
 
 # Must be called before initializing LCD / Keyboard
-pwr_en = machine.Pin(10, machine.Pin.OUT)
-pwr_en.value(1)
+machine.Pin(10, machine.Pin.OUT, value=1)
 time.sleep(0.1)
 
+# Pull all SPI CS pins HIGH before touching the bus (prevents bus conflicts)
+machine.Pin(12, machine.Pin.OUT, value=1)  # display CS
+machine.Pin(9, machine.Pin.OUT, value=1)   # LoRa CS
+machine.Pin(39, machine.Pin.OUT, value=1)  # SD CS
+machine.Pin(38, machine.Pin.IN, machine.Pin.PULL_UP)  # MISO pull-up
+time.sleep(0.1)
+
+# Mount SD Card
+try:
+    import sdcard
+    sd_spi = machine.SoftSPI(baudrate=400000, sck=machine.Pin(40), mosi=machine.Pin(41), miso=machine.Pin(38))
+    sd = sdcard.SDCard(sd_spi, machine.Pin(39, machine.Pin.OUT))
+
+    os.mount(os.VfsFat(sd), '/sd')
+    print("SD mounted at /sd")
+except Exception as e:
+    print("SD mount failed: ", e)
+    sd = None
+
+# Create hardware SPI; this configures the GPIO matrix for pins 40/41.
+# SoftSPI is no longer used after this point.
+spi = machine.SPI(1, baudrate=40000000, sck=machine.Pin(40), mosi=machine.Pin(41), miso=machine.Pin(38))
+
+# The card is already initialized. Only the transport changes.
+# Gives the already-mounted SD card faster hardware SPI for data transfers.
+if sd is not None:
+    sd.spi = spi
+
 # Initialze LCD
-spi = machine.SPI(1, baudrate=40000000, sck=machine.Pin(40), mosi=machine.Pin(41))
 tft = st7789.ST7789(spi,
-    screen_height,
-    screen_width,
-    reset=machine.Pin(1, machine.Pin.OUT),
-    dc=machine.Pin(11, machine.Pin.OUT),
-    cs=machine.Pin(12, machine.Pin.OUT),
-    backlight=machine.Pin(42, machine.Pin.OUT),
-    rotation=1,
-    buffer_size=screen_width*rfont.HEIGHT*2)
+                    screen_height,
+                    screen_width,
+                    reset=machine.Pin(1, machine.Pin.OUT),
+                    dc=machine.Pin(11, machine.Pin.OUT),
+                    cs=machine.Pin(12, machine.Pin.OUT),
+                    backlight=machine.Pin(42, machine.Pin.OUT),
+                    rotation=1,
+                    buffer_size=screen_width*rfont.HEIGHT*2)
 tft.init()
 
 # Initialize ST engine
@@ -63,7 +89,7 @@ kvm = tdeck_kvm.KVM(term , kbd)
 # Redirect to REPL
 os.dupterm(kvm)
 
-# status bar component
+# Status bar component
 sts = status.StatusBar(term, width=cols)
 sts.refresh()
 
@@ -216,6 +242,3 @@ def zm_zork():
     m.run()
 zork = Command(zm_zork)
 
-
-# type wlan to connect to wifi
-# type telehack for telnet telehack

@@ -1018,7 +1018,7 @@ bool dumb_output_handle_setting(const char *setting, bool show_cursor,
 
 	if (!strncmp(setting, "pb", 2)) {
 		toggle(&show_pictures, setting[2]);
-		zm_printf("Picture outlines display %s\n", show_pictures ? "ON" : "OFF");
+		zm_printf("Picture outlines display %s\r\n", show_pictures ? "ON" : "OFF");
 		if (startup)
 			return TRUE;
 		for (i = 0; i < screen_cells; i++)
@@ -1026,14 +1026,14 @@ bool dumb_output_handle_setting(const char *setting, bool show_cursor,
 		dumb_show_screen(show_cursor);
 	} else if (!strncmp(setting, "vb", 2)) {
 		toggle(&visual_bell, setting[2]);
-		zm_printf("Visual bell %s\n", visual_bell ? "ON" : "OFF");
+		zm_printf("Visual bell %s\r\n", visual_bell ? "ON" : "OFF");
 		os_beep(1); os_beep(2);
 	} else if (!strncmp(setting, "ln", 2)) {
 		toggle(&show_line_numbers, setting[2]);
-		zm_printf("Line numbering %s\n", show_line_numbers ? "ON" : "OFF");
+		zm_printf("Line numbering %s\r\n", show_line_numbers ? "ON" : "OFF");
 	} else if (!strncmp(setting, "lt", 2)) {
 		toggle(&show_line_types, setting[2]);
-		zm_printf("Line-type display %s\n", show_line_types ? "ON" : "OFF");
+		zm_printf("Line-type display %s\r\n", show_line_types ? "ON" : "OFF");
 	} else if (*setting == 'c') {
 		switch (setting[1]) {
 			case 'm': compression_mode = COMPRESSION_MAX; break;
@@ -1042,7 +1042,7 @@ bool dumb_output_handle_setting(const char *setting, bool show_cursor,
 			case 'h': hide_lines = atoi(&setting[2]); break;
 			default: return FALSE;
 		}
-		zm_printf("Compression mode %s, hiding top %d lines\n",
+		zm_printf("Compression mode %s, hiding top %d lines\r\n",
 		compression_names[compression_mode], hide_lines);
 	} else if (*setting == 'r') {
 		switch (setting[1]) {
@@ -1070,13 +1070,13 @@ bool dumb_output_handle_setting(const char *setting, bool show_cursor,
 			screen_changes[i] = (screen_data[i].style == REVERSE_STYLE);
 		dumb_show_screen(show_cursor);
 	} else if (!strcmp(setting, "set")) {
-		zm_printf("Compression Mode %s, hiding top %d lines\n",
+		zm_printf("Compression Mode %s, hiding top %d lines\r\n",
 			compression_names[compression_mode], hide_lines);
-		zm_printf("Picture Boxes display %s\n", show_pictures ? "ON" : "OFF");
-		zm_printf("Visual Bell %s\n", visual_bell ? "ON" : "OFF");
+		zm_printf("Picture Boxes display %s\r\n", show_pictures ? "ON" : "OFF");
+		zm_printf("Visual Bell %s\r\n", visual_bell ? "ON" : "OFF");
 		os_beep(1); os_beep(2);
-		zm_printf("Line Numbering %s\n", show_line_numbers ? "ON" : "OFF");
-		zm_printf("Line-Type display %s\n", show_line_types ? "ON" : "OFF");
+		zm_printf("Line Numbering %s\r\n", show_line_numbers ? "ON" : "OFF");
+		zm_printf("Line-Type display %s\r\n", show_line_types ? "ON" : "OFF");
 		zm_printf("Reverse-Video mode %s, Blanks reverse to '%s': ",
 			rv_names[rv_mode], rv_blank_str);
 		for (p = "sample reverse text"; *p; p++)

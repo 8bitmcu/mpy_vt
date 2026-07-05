@@ -26,6 +26,7 @@
 
 #include <stdlib.h>
 #include "frotz.h"
+#include "../frotz_utils.h"
 
 #ifndef MSDOS_16BIT
 #define cdecl
@@ -123,10 +124,16 @@ int frotz_main(int argc, char *argv[])
 	os_init_screen();
 	init_undo();
 	z_restart();
+
+  zm_printf("interpret...\r\n");
 	interpret();
+  zm_printf("reset_screen...\r\n");
 	reset_screen();
+  zm_printf("reset_memory...\r\n");
 	reset_memory();
+  zm_printf("os_reset_screen...\r\n");
 	os_reset_screen();
+  zm_printf("os_quit...\r\n");
 	os_quit(EXIT_SUCCESS);
 	return 0;
 } /* frotz_main */
