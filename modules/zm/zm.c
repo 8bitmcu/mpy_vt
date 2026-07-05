@@ -3,21 +3,21 @@
 #include "py/obj.h"
 #include "py/runtime.h"
 #include <setjmp.h>
+#include "zm.h"
 
 extern int frotz_main(int argc, char *argv[]);
 
 jmp_buf frotz_exit_env;
 
 // 1. Define the object structure to hold interpreter state
-typedef struct _zm_zm_obj_t {
-  mp_obj_base_t base;
-  // Add your Bocfel state pointers here
-} zm_zm_obj_t;
+
+// Global pointer for frotz_main to access the current instance's stream
+zm_zm_obj_t *current_frotz_instance = NULL;
 
 // 2. The constructor: zm.ZMachine("file.z5")
 static mp_obj_t zm_make_new(const mp_obj_type_t *type, size_t n_args,
                             size_t n_kw, const mp_obj_t *args) {
-  mp_arg_check_num(n_args, n_kw, 1, 1, false);
+  mp_arg_check_num(n_args, n_kw, 2, 2, false);
 
   zm_zm_obj_t *self = m_new_obj(zm_zm_obj_t);
   self->base.type = type;
@@ -25,6 +25,13 @@ static mp_obj_t zm_make_new(const mp_obj_type_t *type, size_t n_args,
   // Initialize your C interpreter logic here
   // const char *filename = mp_obj_str_get_str(args[0]);
   //
+  // Handle Stream (e.g., KVM object)
+  self->stream_obj = args[1];
+  self->stream_p = mp_get_stream_raise(self->stream_obj,
+                                       MP_STREAM_OP_READ | MP_STREAM_OP_WRITE);
+
+  current_frotz_instance = self;
+
   return MP_OBJ_FROM_PTR(self);
 }
 

@@ -238,7 +238,7 @@ retrocampus = Command(telnet_retrocampus)
 
 
 def zm_zork():
-    m = zm.ZMachine("zork1.dat")
+    m = zm.ZMachine("zork1.dat", kvm)
     m.run()
 zork = Command(zm_zork)
 

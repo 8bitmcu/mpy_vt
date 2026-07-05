@@ -6,8 +6,6 @@
 #include <stdint.h>
 
 // Global pointer for vi_main to access the current instance's stream
-// Note: If you plan on multiple instances, you'll need to pass 'self' into
-// vi_main
 vi_vi_obj_t *current_vi_instance = NULL;
 
 // The Constructor: vi.Vi(filename, stream, width, height)

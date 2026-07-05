@@ -1,18 +1,67 @@
 #ifndef FROTZ_UTILS_H
 #define FROTZ_UTILS_H
 
+#include "../zm.h"
 #include "py/misc.h"
 #include "py/mphal.h"
 #include "py/nlr.h"
 #include "py/runtime.h"
 #include "py/stream.h"
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
+extern zm_zm_obj_t *current_frotz_instance;
+
 static inline char *zm_basename(char *path) {
   char *base = strrchr(path, '/');
   return base ? base + 1 : path;
+}
+
+static int xgetchar(void) {
+  int c;
+
+  while (1) {
+    uint8_t byte;
+    int errcode;
+
+    mp_uint_t n = current_frotz_instance->stream_p->read(
+        current_frotz_instance->stream_obj, &byte, 1, &errcode);
+
+    if (n != (mp_uint_t)-1 && n > 0) {
+      c = byte;
+    } else {
+      mp_hal_delay_ms(10);
+      continue;
+    }
+
+    if (c != EOF) {
+      return c;
+    }
+
+    if (feof(stdin)) {
+      fprintf(stderr, "\nEOT\n");
+      os_quit(EXIT_SUCCESS);
+    }
+
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      mp_hal_delay_ms(10);
+      continue;
+    }
+
+    os_fatal(strerror(errno));
+  }
+}
+
+static void zm_putchar(char c) {
+  // Write exactly 1 character to the active MicroPython stdout stream
+  if (c == '\n') {
+    char cr = '\r';
+    mp_hal_stdout_tx_strn(&cr, 1);
+  }
+
+  mp_hal_stdout_tx_strn(&c, 1);
 }
 
 static inline int zm_printf(const char *format, ...) {

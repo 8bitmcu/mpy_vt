@@ -81,34 +81,6 @@ enum input_type {
 	INPUT_LINE_CONTINUED,
 };
 
-
-/* get a character.  Exit with no fuss on EOF.  */
-static int xgetchar(void)
-{
-	int c = getchar();
-	if (c == EOF) {
-		if (feof(stdin)) {
-			fprintf(stderr, "\nEOT\n");
-			os_quit(EXIT_SUCCESS);
-		}
-#ifdef TOPS20
-		/* On TOPS-20 only, the very first getchar() may return EOF,
-		 * even thought feof(stdin) is false.  No idea why, but...
-		 */
-		if (!spurious_getchar) {
-			spurious_getchar = TRUE;
-			return xgetchar();
-		} else {
-			os_fatal(strerror(errno));
-		}
-#else
-		os_fatal("Failed to get character");
-#endif
-	}
-	return c;
-} /* xgetchar */
-
-
 /* Read one line, including the newline, into s.  Safely avoids buffer
  * overruns (but that's kind of pointless because there are several
  * other places where I'm not so careful).  */

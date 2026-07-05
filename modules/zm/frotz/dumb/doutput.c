@@ -101,25 +101,6 @@ static char rv_blank_str[5] = {' ', 0, 0, 0, 0};
 /*
  * Local functions
  */
-#ifdef USE_UTF8
-static void zputchar(zchar);
-void zputchar(zchar c)
-{
-	if(c > 0x7ff) {
-		putchar(0xe0 | ((c >> 12) & 0xf));
-		putchar(0x80 | ((c >> 6) & 0x3f));
-		putchar(0x80 | (c & 0x3f));
-	} else if(c > 0x7f) {
-		putchar(0xc0 | ((c >> 6) & 0x1f));
-		putchar(0x80 | (c & 0x3f));
-	} else {
-		putchar(c);
-	}
-} /* zputchar */
-#else
-#define zputchar(x) putchar(x)
-#endif
-
 
 /* if val is '0' or '1', set *var accordingly, else toggle it.  */
 static void toggle(bool *var, char val)
@@ -146,7 +127,7 @@ static void show_cell_irc(cell_t cel)
 	}
 
 	if (fg != lastfg || bg != lastbg) {
-		putchar ('\017');	/* ^O cancels all text styles */
+		zm_putchar ('\017');	/* ^O cancels all text styles */
 		lastbold = 0;
 		lastemph = 0;
 
@@ -161,28 +142,28 @@ static void show_cell_irc(cell_t cel)
 
 	if (cel.style & BOLDFACE_STYLE) {
 		if (!lastbold)
-			putchar('\002');
+			zm_putchar('\002');
 		lastbold = 1;
 	} else {
 		if (lastbold)
-			putchar('\002');
+			zm_putchar('\002');
 		lastbold = 0;
 	}
 
 	if (cel.style & EMPHASIS_STYLE) {
 		if (!lastemph)
-			putchar('\037');
+			zm_putchar('\037');
 		lastemph = 1;
 	} else {
 		if (lastemph)
-			putchar('\037');
+			zm_putchar('\037');
 		lastemph = 0;
 	}
 
 	if (cel.style & PICTURE_STYLE)
-		zputchar(show_pictures ? cel.c : ' ');
+		zm_putchar(show_pictures ? cel.c : ' ');
 	else
-		zputchar(cel.c);
+		zm_putchar(cel.c);
 
 	lastfg = fg;
 	lastbg = bg;
@@ -257,9 +238,9 @@ static void show_cell_ansi(cell_t cel)
 	}
 
 	if (cel.style & PICTURE_STYLE)
-		zputchar(show_pictures ? cel.c : ' ');
+		zm_putchar(show_pictures ? cel.c : ' ');
 	else
-		zputchar(cel.c);
+		zm_putchar(cel.c);
 } /* show_cell_ansi */
 
 
@@ -348,13 +329,13 @@ static void show_cell_bbcode(cell_t cel)
 	}
 
 	if (cel.style & PICTURE_STYLE)
-		zputchar(show_pictures ? cel.c : ' ');
+		zm_putchar(show_pictures ? cel.c : ' ');
 	else if (strchr("[]\\`*|_#<>=-.+~&", cel.c))
 		zm_printf("\\%c", cel.c);
 	else if (cel.c == ' ' && fix)
 		zm_printf("&nbsp;");
 	else
-		zputchar(cel.c);
+		zm_putchar(cel.c);
 } /* show_cell_bbcode */
 #endif /* DISABLE_FORMATS */
 
@@ -369,30 +350,30 @@ static void show_cell_normal(cell_t cel)
 			switch (rv_mode) {
 			case RV_CAPS:
 				if (cel.c <= 0x7f) {
-					zputchar(toupper(cel.c));
+					zm_putchar(toupper(cel.c));
 					break;
 				}
 				/* fall through */
 			case RV_NONE:
-				zputchar(cel.c);
+				zm_putchar(cel.c);
 				break;
 			case RV_UNDERLINE:
-				putchar('_');
-				putchar('\b');
-				zputchar(cel.c);
+				zm_putchar('_');
+				zm_putchar('\b');
+				zm_putchar(cel.c);
 				break;
 			case RV_DOUBLESTRIKE:
-				zputchar(cel.c);
-				putchar('\b');
-				zputchar(cel.c);
+				zm_putchar(cel.c);
+				zm_putchar('\b');
+				zm_putchar(cel.c);
 				break;
 			}
 		}
 	}
 	else if (cel.style & PICTURE_STYLE)
-		zputchar(show_pictures ? cel.c : ' ');
+		zm_putchar(show_pictures ? cel.c : ' ');
 	else	/* Only NORMAL_STYLE and FIXED_WIDTH_STYLE are left. */
-		zputchar(cel.c);
+		zm_putchar(cel.c);
 } /* show_cell_normal */
 
 
@@ -663,7 +644,7 @@ void os_beep (int volume)
 	if (visual_bell)
 		zm_printf("[%s-PITCHED BEEP]\n", (volume == 1) ? "HIGH" : "LOW");
 	else
-		putchar('\a'); /* so much for dumb.  */
+		zm_putchar('\a'); /* so much for dumb.  */
 } /* os_beep */
 
 
@@ -1065,7 +1046,7 @@ bool dumb_output_handle_setting(const char *setting, bool show_cursor,
 
 		for (p = "sample reverse text"; *p; p++)
 			show_cell(make_cell(REVERSE_STYLE, DEFAULT_DUMB_COLOUR, DEFAULT_DUMB_COLOUR, *p));
-		putchar('\n');
+		zm_putchar('\n');
 		for (i = 0; i < screen_cells; i++)
 			screen_changes[i] = (screen_data[i].style == REVERSE_STYLE);
 		dumb_show_screen(show_cursor);
@@ -1081,7 +1062,7 @@ bool dumb_output_handle_setting(const char *setting, bool show_cursor,
 			rv_names[rv_mode], rv_blank_str);
 		for (p = "sample reverse text"; *p; p++)
 			show_cell(make_cell(REVERSE_STYLE, DEFAULT_DUMB_COLOUR, DEFAULT_DUMB_COLOUR, *p));
-		putchar('\n');
+		zm_putchar('\n');
 	} else
 		return FALSE;
 	return TRUE;
