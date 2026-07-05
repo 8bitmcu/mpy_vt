@@ -16,3 +16,8 @@ include(${CMAKE_CURRENT_LIST_DIR}/tdeck_trk/micropython.cmake)
 # include the vi editor module
 include(${CMAKE_CURRENT_LIST_DIR}/vi/micropython.cmake)
 
+# include the zm module (Z-machine interpreter)
+include(${CMAKE_CURRENT_LIST_DIR}/zm/micropython.cmake)
+
+# include the tu (text ui) module
+include(${CMAKE_CURRENT_LIST_DIR}/tu/micropython.cmake)

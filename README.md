@@ -17,7 +17,7 @@ As a showcase of the engine's capabilities, this project includes a fully functi
 
 ## ⚡ Quick Install (Pre-compiled Binaries)
 
-Don't want to set up a build environment? You can download and flash the latest pre-compiled firmware directly to your T-Deck.
+You can download and flash the latest pre-compiled firmware directly to your T-Deck.
 
 ### Option A: Flash from command line
 
@@ -61,6 +61,7 @@ You can execute the following commands directly in the MicroPython REPL:
 | `clear` | Clears the screen |
 | `telehack` | Connects telnet to telehack.com |
 | `retrocampus` | Connects telnet to bbs.retrocampus.com |
+| `zork` | Launches Zork through the ZMachine interpreter. Note: `zork1.dat` must be present on your SD card root directory |
 
 ## 🚀 VT Features
 
@@ -92,6 +93,7 @@ This project is composed of six specialized modules that works in tandem:
 | `tdeck_trk` | Motion Engine | Interrupts | Low-level driver for the T-Deck trackball. Uses GPIO interrupts to track relative motion (deltas) and supports edge-detection for short/long click durations. |
 | `tdeck_kvm` | Stream Glue | Read/Write | A composite Keyboard-Video-Mouse (trackball) object. It binds vt (Output) and tdeck_kbd (Input) into a single stream object compatible with os.dupterm. |
 | `vi` | Text Editor | Read/Write | A C-integrated port of the classic `vi` editor. |
+| `zm` | ZMachine Interpreter | Read/Write | A port of the `frotz` Zmachine interpreter. |
 
 
 ## 📟 T-Deck Hardware Integration
@@ -302,14 +304,22 @@ make repl PORT=/dev/ttyUSB0
 | **`inject()`** | `data` | **Macro Injection.** Accepts a string or bytes and places them into the high-priority ring buffer to be read by the REPL or active application. |
 | **`ioctl()`** | `cmd, arg` | Aggregates status from both objects (e.g., checks if KBD has data or if VT is ready). |
 
-### **5. `vi.Vi` (Text Editor)**
+### **5. `zm.ZMachine` (ZMachine Interpreter)**
+*Port of the `frotz` interpreter.*
+
+| Method | Parameters | Description |
+| :--- | :--- | :--- |
+| **`ZMachine()`** | `filename, stream, cols, rows` | **Constructor.** Creates a ZMachine instance with a given filename, using `stream` for input/outputs. |
+| **`run()`** | None | Launches the Zmachine interpreter. |
+
+### **6. `vi.Vi` (Text Editor)**
 *Port of the classic `vi` text-editor.*
 
 | Method | Parameters | Description |
 | :--- | :--- | :--- |
 | **`Vi()`** | `filename, stream, cols, rows` | **Constructor.** Launches the vi editor, opening a given filename, using `stream` for input/outputs. |
 
-### **6. `st7789` (Modified Display Driver)**
+### **7. `st7789` (Modified Display Driver)**
 *Standard display driver with specific C-layer extensions for terminal performance.*
 
 | Feature | Type | Description |
@@ -318,12 +328,13 @@ make repl PORT=/dev/ttyUSB0
 
 ## ⚖️ License & Attribution
 
-This project is licensed under the **MIT License**.
+This project's source code is licensed under the **MIT License**. However, if you compile the firmware with the optional `frotz` module enabled, the resulting compiled binary is distributed under the **GPLv2 License**.
 
 ### Third-Party Components:
 * **st License:** MIT (c) st engineers.
 * **st7789_mpy:** (c) Russ Hughes. MIT License
 * **vi** (Toybox): (c) Rob Landley, Jarno Mäkipää. 0BSD License (Zero-Clause BSD).
+* **frotz**: (c) Stefan Jokisch, David Griffith. GPLv2 License
 * **MicroPython**: (c) Damien P. George. MIT License.
 
 ### Fonts & Assets:
