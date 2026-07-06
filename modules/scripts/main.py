@@ -9,12 +9,10 @@ import tdeck_kvm
 import os
 import sys
 import time
-import telnet
-import netman
+import netmgr
 import st7789
 import time
 import status
-
 
 # Screen dimensions in pixel
 screen_width = 320
@@ -165,7 +163,7 @@ class Command:
         return ""
 
 # Network Manager
-nm = Command(netman.connect_wifi)
+nm = Command(netmgr.connect_wifi)
 
 def vi_example():
     try:
@@ -218,6 +216,7 @@ clear = Command(clear_screen)
 # Example: Telehack (great for testing text formatting)
 # Host: telehack.com, Port: 23
 def telnet_telehack():
+    import telnet
     client = telnet.TelnetClient("telehack.com", 23, kvm, cols=cols, rows=rows)
     try:
         client.process()
@@ -227,6 +226,7 @@ def telnet_telehack():
 telehack = Command(telnet_telehack)
 
 def telnet_retrocampus():
+    import telnet
     client = telnet.TelnetClient("bbs.retrocampus.com", 23, kvm, cols=cols, rows=rows)
     try:
         client.process()
@@ -235,7 +235,6 @@ def telnet_retrocampus():
 
 retrocampus = Command(telnet_retrocampus)
 
-
 def zm_zork():
     import zm
     m = zm.ZMachine("/sd/zork1.dat", kvm, cols, rows)
@@ -243,3 +242,11 @@ def zm_zork():
 
 zork = Command(zm_zork)
 
+def ftp_server():
+    import ftpserver
+    try:
+        ftpserver.start()
+    except KeyboardInterrupt:
+        pass
+
+ftps = Command(ftp_server)

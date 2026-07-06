@@ -14,8 +14,10 @@
 #include "st.h"
 #include "win.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "py/mphal.h"
 #include "py/runtime.h"
-
 
 static void ttywriteraw(const char *, size_t);
 
@@ -1288,9 +1290,20 @@ void csihandle(void) {
     break;
   case 'b': /* REP -- if last char is printable print it <n> more times */
     LIMIT(csiescseq.arg[0], 1, 65535);
-    if (term.lastc)
-      while (csiescseq.arg[0]-- > 0)
+    if (term.lastc) {
+      mp_uint_t t0 = mp_hal_ticks_ms();
+      int rep = csiescseq.arg[0];
+      while (rep-- > 0) {
         tputc(term.lastc);
+        if ((rep & 0xFF) == 0) {
+          mp_uint_t now = mp_hal_ticks_ms();
+          if (now - t0 >= 50) {
+            t0 = now;
+            vTaskDelay(1);
+          }
+        }
+      }
+    }
     break;
   case 'C': /* CUF -- Cursor <n> Forward */
   case 'a': /* HPR -- Cursor <n> Forward */
@@ -2275,12 +2288,19 @@ void resettitle(void) { xsettitle(NULL); }
 void drawregion(int x1, int y1, int x2, int y2) {
   int y;
 
+  mp_uint_t t0 = mp_hal_ticks_ms();
   for (y = y1; y < y2; y++) {
     if (!term.dirty[y])
       continue;
 
     term.dirty[y] = 0;
     xdrawline(TLINE(y), x1, y, x2);
+
+    mp_uint_t now = mp_hal_ticks_ms();
+    if (now - t0 >= 30) {
+      t0 = now;
+      vTaskDelay(1);
+    }
   }
 }
 

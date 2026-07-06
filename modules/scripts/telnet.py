@@ -96,7 +96,7 @@ class TelnetClient:
                     self.socket.send(b'\r\n')
                 else:
                     self.socket.send(bytes([char_byte]))
-            time.sleep_ms(30)
+            time.sleep_ms(10)
 
     def _process_complex_data(self, data):
         """

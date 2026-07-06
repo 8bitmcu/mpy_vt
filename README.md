@@ -2,9 +2,9 @@
 
 This project implements a high-performance, attribute-aware terminal emulator for MicroPython. By wrapping the [st](https://st.suckless.org/) (suckless terminal) engine in a custom C module, it achieves desktop-class terminal features on embedded hardware, including a **zero-allocation status bar** for real-time telemetry without heap fragmentation. Unlike basic serial monitors, it handles complex escape sequences, colors, and text attributes with the efficiency and speed characteristic of suckless software.
 
-This project now features first-class support for the **LILYGO T-Deck**, transforming it into a standalone portable terminal. The integration leverages the T-Deck’s hardware keyboard, trackball and 320x240 display, utilizing the ESP32-S3's PSRAM to manage the terminal's backbuffer and state.
+This project features first-class support for the [LILYGO T-Deck](https://s.click.aliexpress.com/e/_c4agv9Wd), transforming it into a standalone portable terminal. The integration leverages the T-Deck’s hardware keyboard, trackball and 320x240 display, utilizing the ESP32-S3's PSRAM to manage the terminal's backbuffer and state.
 
-As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the `vi` **text editor**. Furthermore, it provides a Python-based **Telnet client**, demonstrating how the terminal engine can be easily extended to create networked applications.
+As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the [vi](https://en.wikipedia.org/wiki/Vi_(text_editor)) **text editor** and [frotz](https://davidgriffith.gitlab.io/frotz/) **ZMachine interpreter** that supports playing classic text games like [Zork](https://en.wikipedia.org/wiki/Zork). Furthermore, it provides a Python-based **Telnet client** and **FTP server**, demonstrating how the terminal engine can be easily extended to create networked applications.
 
 | ASCII demo (running on CYD) | vi app |
 | :---: | :---: |
@@ -62,6 +62,7 @@ You can execute the following commands directly in the MicroPython REPL:
 | `telehack` | Connects telnet to telehack.com |
 | `retrocampus` | Connects telnet to bbs.retrocampus.com |
 | `zork` | Launches Zork through the ZMachine interpreter. Note: `zork1.dat` must be present on your SD card root directory |
+| `ftps` | Launches a FTP Server on `/` with user `admin` and pwd `admin`. **NOTE**: supports a single connection only |
 
 ## 🚀 VT Features
 
@@ -81,9 +82,9 @@ Unlike standard display drivers that refresh the entire screen for every charact
 * **Native ANSI Rendering**: ANSI escape sequences are embedded directly into the bytearray at initialization. The C engine treats the entire bar as a single, pre-styled memory block, allowing for instant, flicker-free UI updates with zero overhead for color or positioning logic.
 
 
-## 🧩 Modules
+## 🧩 C Modules
 
-This project is composed of the following modules:
+This project is composed of the following C modules:
 
 | Module | Role | Stream Type | Description |
 | :---   | :--- | :--- | :--- |
@@ -112,7 +113,7 @@ This project is optimized for the **LilyGO T-Deck**, leveraging MicroPython to i
 | **Microphone** | I2S, ES7210 ADC | todo |
 | **Speaker** | I2S | todo |
 | **Touchscreen** | GT911 | todo |
-| **LoRa Radiio** | SX1262 | todo |
+| **LoRa Radio** | SX1262 | todo |
 
 ## 🔌 MicroPython REPL Integration
 

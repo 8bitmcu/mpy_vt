@@ -9,9 +9,9 @@
 #ifndef FB_H
 #define FB_H
 
-#include "st.h"  /* To get the Glyph and Rune types */
-#include "win.h" /* To ensure we match original X11 signatures */
+#include "st.h" /* To get the Glyph and Rune types */
 #include "st7789.h"
+#include "win.h" /* To ensure we match original X11 signatures */
 #include <stdint.h>
 
 typedef struct _vt_VT_obj_t {
@@ -29,6 +29,8 @@ static Glyph bot_line_now[256];  // Buffer for bottom bar
 static Glyph bot_line_last[256]; // Back-buffer for bottom bar
 
 extern vt_VT_obj_t *current_vt_obj;
+
+static unsigned int wmode = MODE_VISIBLE;
 
 /* Window/UI operations */
 void xsettitle(char *p);

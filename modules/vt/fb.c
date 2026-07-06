@@ -67,6 +67,7 @@ void draw_bar_ansi(const char *text, size_t len, int bar_type) {
   Glyph *last = (bar_type == -1) ? top_line_last : bot_line_last;
 
   TCursor save_cursor = term.c;
+  int save_esc = term.esc;
   Line *original_lines = term.line;
   Line virtual_line = now;
   term.line = &virtual_line;
@@ -75,15 +76,21 @@ void draw_bar_ansi(const char *text, size_t len, int bar_type) {
   memset(now, 0, sizeof(Glyph) * 256);
   term.c.x = 0;
   term.c.y = 0;
+  term.c.attr.mode = ATTR_NULL;
+  term.c.attr.fg = defaultfg;
+  term.c.attr.bg = defaultbg;
+  term.esc = 0;
 
   for (size_t i = 0; i < len; i++) {
     tputc(text[i]);
   }
 
+  term.line = original_lines;
+  term.c = save_cursor;
+  (void)save_esc;
+
   // Dirty check: Compare results
   if (memcmp(now, last, term.col * sizeof(Glyph)) == 0) {
-    term.line = original_lines;
-    term.c = save_cursor;
     return;
   }
 
@@ -92,9 +99,6 @@ void draw_bar_ansi(const char *text, size_t len, int bar_type) {
 
   // Sync back-buffer
   memcpy(last, now, term.col * sizeof(Glyph));
-
-  term.line = original_lines;
-  term.c = save_cursor;
 }
 
 void xdrawline(Line ln, int _x1, int _y1, int _x2) {
@@ -182,7 +186,7 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
       uint16_t cursor_fg = 0xFFFF; // White or custom cursor color
       int cur_x = term.c.x;
       int cur_y = term.c.y;
-      bool show_cursor = !(term.mode & MODE_HIDE);
+      bool show_cursor = !(wmode & MODE_HIDE);
 
       // Get current style from terminal state (Default to 6 if not set)
       // 0,1,2 = Block | 3,4 = Underline | 5,6 = Beam
@@ -299,6 +303,13 @@ void xloadcols(void) {}
 void xdrawcursor(int cx, int cy, Glyph g, int ox, int oy, Glyph og) {}
 void xdrawglyph(Glyph g, int x, int y) {}
 
+void xsetmode(int set, unsigned int val) {
+  if (set)
+    wmode |= val;
+  else
+    wmode &= ~val;
+}
+
 /* Variables: st expects these to exist as defaults */
 int allowaltscreen = 1;         /* Allow switching to the 'alt' buffer */
 char *vtiden = "\033[?6c";      /* Terminal identification string */
@@ -306,7 +317,6 @@ wchar_t *worddelimiters = L" "; /* Characters that break selection */
 unsigned int defaultcs = 256;   /* Default cursor color index */
 
 /* Functions: Empty stubs to satisfy the linker */
-void xsetmode(int mode, unsigned int val) {}
 void xsetpointermotion(int val) {}
 int xsetcursor(int cursor) { return 1; }
 void xbell(void) {}

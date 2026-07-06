@@ -6,6 +6,8 @@
  * License: MIT
  */
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "py/mphal.h"
 #include "py/objstr.h"
 #include "py/runtime.h"
@@ -25,8 +27,17 @@ vt_VT_obj_t *current_vt_obj = NULL;
 const mp_obj_type_t vt_VT_type;
 
 static void vt_internal_write(const char *buf, size_t size) {
+  mp_uint_t t0 = mp_hal_ticks_ms();
   for (size_t i = 0; i < size; i++) {
     tputc((uchar)buf[i]);
+
+    if ((i & 0x3F) == 0x3F) {
+      mp_uint_t now = mp_hal_ticks_ms();
+      if (now - t0 >= 50) {
+        t0 = now;
+        vTaskDelay(1);
+      }
+    }
   }
 }
 
@@ -74,6 +85,7 @@ MP_DEFINE_CONST_FUN_OBJ_2(vt_VT_write_obj, vt_VT_write);
 
 static mp_obj_t vt_VT_draw(mp_obj_t self_in) {
   draw();
+  vTaskDelay(1);
   return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(vt_VT_draw_obj, vt_VT_draw);
@@ -89,7 +101,6 @@ static mp_obj_t vt_VT_scrolldown(mp_obj_t self_in) {
   return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(vt_VT_scrolldown_obj, vt_VT_scrolldown);
-
 
 static mp_obj_t vt_vt_top_offset(mp_obj_t self_in, mp_obj_t offset_obj) {
   int offset = mp_obj_get_int(offset_obj);
