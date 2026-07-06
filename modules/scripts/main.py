@@ -250,3 +250,15 @@ def ftp_server():
         pass
 
 ftps = Command(ftp_server)
+
+
+
+
+
+
+
+
+
+import vttui
+tui = vttui.VTTUI(kvm, cols, rows)
+tui.draw()
