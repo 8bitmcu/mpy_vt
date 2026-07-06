@@ -83,7 +83,7 @@ Unlike standard display drivers that refresh the entire screen for every charact
 
 ## 🧩 Modules
 
-This project is composed of six specialized modules that works in tandem:
+This project is composed of the following modules:
 
 | Module | Role | Stream Type | Description |
 | :---   | :--- | :--- | :--- |
@@ -104,9 +104,15 @@ This project is optimized for the **LilyGO T-Deck**, leveraging MicroPython to i
 
 | Component | Specification | Driver / Status |
 | :--- | :--- | :--- |
-| **Display** | 2.4" ST7789 LCD (320x240) | Optimized SPI bus (Full Color) |
-| **Input** | LILYGO Keyboard & Trackball | Fully Mapped I2C Interface |
 | **Memory** | 8MB PSRAM / 16MB Flash | Enabled for Large Buffer Handling |
+| **SD Card** | SPI | Experimental |
+| **Display** | 2.4" ST7789 LCD (320x240) | Optimized SPI bus (Full Color) |
+| **Keyboard** | LILYGO Keyboard | Mapped I2C Interface |
+| **Trackball** | LILYGO Trackball | Mapped I2C Interface |
+| **Microphone** | I2S, ES7210 ADC | todo |
+| **Speaker** | I2S | todo |
+| **Touchscreen** | GT911 | todo |
+| **LoRa Radiio** | SX1262 | todo |
 
 ## 🔌 MicroPython REPL Integration
 
