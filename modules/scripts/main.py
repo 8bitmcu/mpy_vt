@@ -255,10 +255,28 @@ ftps = Command(ftp_server)
 
 
 
+def tui_test():
+    import vttui
+    tui = vttui.VTTUI(term, cols, rows)
+
+    clear_screen()
+    tui.draw_label("Hello", 0, 0)
+    tui.draw_label("Centered", 20, 2, align="center")
+    tui.draw_label("Title", 20, 4, fg=0, bg=15, bold=True, align="center")
+    tui.draw_label("[ MENU ]", 0, 6, fg=0, bg=252, bold=True, align="center", width=40)
+    tui.draw_label("Name:", 0, 8, bg=18, width=20, align="right")
 
 
 
 
-import vttui
-tui = vttui.VTTUI(kvm, cols, rows)
-tui.draw()
+
+def tui_demo():
+    import vttui
+    tui = vttui.VTTUI(term, cols, rows)
+
+    import netmgr2
+    netmgr2.menu(tui)
+
+
+d = Command(tui_demo)
+
