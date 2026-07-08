@@ -24,6 +24,8 @@ BAUD ?= 460800
 BOARD = LILYGO_T_DECK
 BOARD_DIR = $(shell pwd)/boards
 
+FILE ?= main.py
+
 .PHONY: init build flash sync_files clean repl core_dump
 
 init:
@@ -80,7 +82,7 @@ sync_file:
 		-v $(USER_MODS_DIR):/opt/all_modules \
 		--device=$(PORT):$(PORT) \
 		$(MP_REMOTE) \
-		mpremote connect $(PORT) cp -r /opt/all_modules/scripts/filemgr.py :filemgr.py
+		mpremote connect $(PORT) cp /opt/all_modules/scripts/$(FILE) :$(FILE)
 
 clean:
 	docker run --rm -v $(MPY_VOLUME):/opt/micropython $(MP_REMOTE) \

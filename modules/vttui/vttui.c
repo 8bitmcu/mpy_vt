@@ -1,3 +1,9 @@
+/*
+ * MicroPython Text User Interface Library
+ * Copyright (c) 2026 8bitmcu
+ * License: MIT
+ */
+
 #include "py/mpconfig.h"
 #include "py/mphal.h"
 #include "py/obj.h"

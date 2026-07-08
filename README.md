@@ -4,7 +4,7 @@ This project implements a high-performance, attribute-aware terminal emulator fo
 
 This project features first-class support for the [LILYGO T-Deck](https://s.click.aliexpress.com/e/_c4agv9Wd), transforming it into a standalone portable terminal. The integration leverages the T-Deck’s hardware keyboard, trackball and 320x240 display, utilizing the ESP32-S3's PSRAM to manage the terminal's backbuffer and state.
 
-As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the [vi](https://en.wikipedia.org/wiki/Vi_(text_editor)) **text editor** and [frotz](https://davidgriffith.gitlab.io/frotz/) **ZMachine interpreter** that supports playing classic text games like [Zork](https://en.wikipedia.org/wiki/Zork). Furthermore, it provides a Python-based **Telnet client** and **FTP server**, demonstrating how the terminal engine can be easily extended to create networked applications.
+As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the [vi](https://en.wikipedia.org/wiki/Vi_(text_editor)) **text editor** and [frotz](https://davidgriffith.gitlab.io/frotz/) **ZMachine interpreter** that supports playing classic text games like [Zork](https://en.wikipedia.org/wiki/Zork). The firmware provides a Python-based **Telnet client**, **FTP server**, a TUI based **File Manager** and **Network Manager** demonstrating how the terminal engine can be easily extended.
 
 | ASCII demo (running on CYD) | vi app |
 | :---: | :---: |
@@ -55,7 +55,8 @@ You can execute the following commands directly in the MicroPython REPL:
 
 | Command | Description |
 | :---   | :--- |
-| `nm` | Starts the Network Manager TUI |
+| `nm` | Starts the TUI Network Manager |
+| `fm` | Starts the TUI File Manager |
 | `vi` | Opens example.md (with content) within the vi port |
 | `leak` | Check for MicroPython memory leaks |
 | `clear` | Clears the screen |
@@ -89,10 +90,11 @@ This project is composed of the following C modules:
 | Module | Role | Stream Type | Description |
 | :---   | :--- | :--- | :--- |
 | `st7789` | Display Driver | N/A | Modified version of the standard driver. Exposes internal frame buffer pointers to vt for direct-memory access (DMA) rendering. |
-| `vt` | Terminal Engine | Writable | The core emulator. Receives ANSI text, updates internal state, and renders changes to the st7789 display. |
 | `tdeck_kbd` | Input Driver | Readable | Low-level driver for the T-Deck I2C keyboard/trackball. Handles key scanning and interrupt flags. |
 | `tdeck_trk` | Motion Engine | Interrupts | Low-level driver for the T-Deck trackball. Uses GPIO interrupts to track relative motion (deltas) and supports edge-detection for short/long click durations. |
 | `tdeck_kvm` | Stream Glue | Read/Write | A composite Keyboard-Video-Mouse (trackball) object. It binds vt (Output) and tdeck_kbd (Input) into a single stream object compatible with os.dupterm. |
+| `vt` | Terminal Engine | Writable | The core emulator. Receives ANSI text, updates internal state, and renders changes to the st7789 display. |
+| `vttui` | User Interface | Read/Write | A simple to use curses-like text user interface library. |
 | `vi` | Text Editor | Read/Write | A C-integrated port of the classic `vi` editor. |
 | `zm` | ZMachine Interpreter | Read/Write | A port of the `frotz` Zmachine interpreter. |
 
@@ -248,6 +250,8 @@ make flash
 
 `make sync_files` transfers your Python application code to the device. Uses `mpremote` to recursively copy everything inside ./modules/scripts/ into the root of the T-Deck's internal flash filesystem.
 
+`make sync_file FILE=filename.py` transfers a single Python script file to the device. Uses `mpremote` to copy from ./modules/scripts/ into the root of the T-Deck's internal flash filesystem.
+
 `make repl` opens the MicroPython interactive prompt. Connects your terminal to the device's serial output via mpremote. Press Ctrl+D inside the REPL to trigger a soft reboot, or Ctrl+] to exit back to your host terminal.
 
 `make core_dump` analyzes fatal crashes. If your device crashes and enters a bootloop or halts, this command reads the raw coredump partition directly from the flash and maps it against the .elf file in your build volume to provide a human-readable C-level stack trace.
@@ -279,7 +283,6 @@ make repl PORT=/dev/ttyUSB0
 | **`bottom_bar(text)`** | `text` | Parses ANSI and renders at the very last row of the display. |
 | **`top_bar_invalidate()`** | *None | Forces the top bar to redraw on the next update call. |
 | **`bottom_bar_invalidate()`** | *None | Forces the bottom bar to redraw on the next update call. |
-
 
 ### **2. `tdeck_kbd.Keyboard` (Input Driver)**
 *The hardware interface for the T-Deck's I2C-based keyboard and trackball.*
@@ -332,6 +335,9 @@ make repl PORT=/dev/ttyUSB0
 | Feature | Type | Description |
 | :--- | :--- | :--- |
 | **Standard API** | Methods | Retains full compatibility with `fill()` and `pixel()` for drawing non-terminal UI elements. |
+
+### **8. `vttui.VTTUI` (Text User Interface Library)**
+*TODO*
 
 ## ⚖️ License & Attribution
 
