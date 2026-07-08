@@ -1,3 +1,9 @@
+#
+# MicroPython TUI Network Manager
+# Copyright (c) 2026 8bitmcu
+# License: MIT
+#
+
 import sys
 import time
 import network
@@ -115,7 +121,6 @@ def main(tui):
                         break
 
         elif ui_state == "SCAN_WIFI":
-            win.invalidate()
 
             scanning = win.make_label(
                     "Scanning...",
@@ -123,6 +128,7 @@ def main(tui):
                     fg=252, bg=18,
                     align="center")
 
+            win.invalidate()
             win.draw()
             scanning.draw()
             tui.draw()

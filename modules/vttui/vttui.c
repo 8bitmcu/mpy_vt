@@ -2,20 +2,20 @@
 #include "py/mphal.h"
 #include "py/obj.h"
 #include "py/runtime.h"
-#include "py/stream.h"
 #include <string.h>
 
 // ─── Stream globals
 // ───────────────────────────────────────────────────────────
 
+// stream_obj is kept only for draw() and repaint_bars() calls.
+// All ANSI output goes through mp_hal_stdout_tx_strn so it reaches both
+// the USB serial REPL and the LCD (via dupterm → KVM → term).
 static mp_obj_t vttui_stream_obj = MP_OBJ_NULL;
-static const mp_stream_p_t *vttui_stream_p = NULL;
 
 static void vttui_write(const char *buf, size_t len) {
-  if (!vttui_stream_p || len == 0)
+  if (vttui_stream_obj == MP_OBJ_NULL || len == 0)
     return;
-  int errcode;
-  vttui_stream_p->write(vttui_stream_obj, buf, len, &errcode);
+  mp_hal_stdout_tx_strn(buf, len);
 }
 
 static void vttui_write_str(const char *str) { vttui_write(str, strlen(str)); }
@@ -134,12 +134,12 @@ static void write_repeat_str(const char *s, size_t slen, int n) {
 // ─── UTF-8 box drawing
 // ────────────────────────────────────────────────────────
 
-//#define BOX_TL "\xe2\x94\x8c" // ┌
-//#define BOX_TR "\xe2\x94\x90" // ┐
-//#define BOX_BL "\xe2\x94\x94" // └
-//#define BOX_BR "\xe2\x94\x98" // ┘
-//#define BOX_H "\xe2\x94\x80"  // ─
-//#define BOX_V "\xe2\x94\x82"  // │
+// #define BOX_TL "\xe2\x94\x8c" // ┌
+// #define BOX_TR "\xe2\x94\x90" // ┐
+// #define BOX_BL "\xe2\x94\x94" // └
+// #define BOX_BR "\xe2\x94\x98" // ┘
+// #define BOX_H "\xe2\x94\x80"  // ─
+// #define BOX_V "\xe2\x94\x82"  // │
 
 #define BOX_TL "+" // ┌
 #define BOX_TR "+" // ┐
@@ -218,7 +218,6 @@ static void render_list_item(int x, int y, const char *text, size_t text_len,
 typedef struct _vttui_vttui_obj_t {
   mp_obj_base_t base;
   mp_obj_t stream_obj;
-  const mp_stream_p_t *stream_p;
   uint16_t width;
   uint16_t height;
 } vttui_vttui_obj_t;
@@ -249,6 +248,7 @@ typedef struct _vttui_list_obj_t {
   int arrow_len;    // 0 = disabled
   int left_pad;
   mp_obj_t title;
+  bool decorations;
 } vttui_list_obj_t;
 
 typedef struct _vttui_window_obj_t {
@@ -284,6 +284,19 @@ typedef struct _vttui_block_obj_t {
   mp_obj_t text_obj;
   bool dirty;
 } vttui_block_obj_t;
+
+typedef struct _vttui_dialog_obj_t {
+  mp_obj_base_t base;
+  int x, y, width, height;
+  uint32_t fg, bg;
+  uint32_t sel_fg, sel_bg;
+  mp_obj_t text;
+  mp_obj_t btn1, btn2;
+  mp_obj_t title;
+  int selected;
+  int last_selected; // -1 = never drawn (triggers full redraw)
+  bool decorations;
+} vttui_dialog_obj_t;
 
 // ─── VTLabel
 // ──────────────────────────────────────────────────────────────────
@@ -392,18 +405,70 @@ static mp_obj_t vttui_list_draw(mp_obj_t self_in) {
   bool first_draw = (self->last_scroll == -1);
   bool scroll_changed = (self->scroll != self->last_scroll);
 
-  int item_row_offset = (self->title != mp_const_none) ? 1 : 0;
+  int item_x, item_y, item_w, vis_h, item_row_offset;
 
-  if (first_draw && self->title != mp_const_none) {
-    size_t tlen;
-    const char *title = mp_obj_str_get_data(self->title, &tlen);
-    render_label_raw(self->x, self->y, title, tlen, self->width, self->fg,
-                     self->bg, false, 0);
+  if (self->decorations) {
+    item_x = self->x + 1;
+    item_y = self->y + 1;
+    item_w = self->width - 2;
+    vis_h = self->height - 2;
+    item_row_offset = 0;
+
+    if (first_draw) {
+      int x = self->x, y = self->y, w = self->width, h = self->height;
+      vttui_begin(x, y, self->fg, self->bg, false);
+      vttui_write_str(BOX_TL);
+      if (self->title != mp_const_none) {
+        size_t tlen;
+        const char *title = mp_obj_str_get_data(self->title, &tlen);
+        int inner = w - 2, label_w = (int)tlen + 2;
+        if (label_w <= inner) {
+          int n1 = (inner - label_w) / 2;
+          int n2 = inner - label_w - n1;
+          write_repeat_str(BOX_H, 3, n1);
+          vttui_write_str("\033[1m");
+          vttui_write(" ", 1);
+          vttui_write(title, tlen);
+          vttui_write(" ", 1);
+          vttui_write_str("\033[0m");
+          vttui_begin(x + 1 + n1 + label_w, y, self->fg, self->bg, false);
+          write_repeat_str(BOX_H, 3, n2);
+        } else {
+          write_repeat_str(BOX_H, 3, inner);
+        }
+      } else {
+        write_repeat_str(BOX_H, 3, w - 2);
+      }
+      vttui_write_str(BOX_TR "\033[0m");
+      for (int row = 1; row < h - 1; row++) {
+        vttui_begin(x, y + row, self->fg, self->bg, false);
+        vttui_write_str(BOX_V "\033[0m");
+        vttui_begin(x + w - 1, y + row, self->fg, self->bg, false);
+        vttui_write_str(BOX_V "\033[0m");
+      }
+      vttui_begin(x, y + h - 1, self->fg, self->bg, false);
+      vttui_write_str(BOX_BL);
+      write_repeat_str(BOX_H, 3, w - 2);
+      vttui_write_str(BOX_BR "\033[0m");
+    }
+  } else {
+    item_x = self->x;
+    item_y = self->y;
+    item_w = self->width;
+    vis_h = self->height;
+    item_row_offset = (self->title != mp_const_none) ? 1 : 0;
+
+    if (first_draw && self->title != mp_const_none) {
+      size_t tlen;
+      const char *title = mp_obj_str_get_data(self->title, &tlen);
+      render_label_raw(self->x, self->y, title, tlen, self->width, self->fg,
+                       self->bg, false, 0);
+    }
   }
 
-  for (int i = 0; i < self->height; i++) {
+  for (int i = 0; i < vis_h; i++) {
     int item_idx = self->scroll + i;
-    int row = self->y + item_row_offset + i;
+    int row = item_y + item_row_offset + i;
     bool is_sel = (item_idx == self->selected);
     bool was_sel = (item_idx == self->last_selected);
 
@@ -414,7 +479,7 @@ static mp_obj_t vttui_list_draw(mp_obj_t self_in) {
     uint32_t bg = is_sel ? self->sel_bg : self->bg;
 
     if (item_idx >= self->item_count) {
-      render_list_item(self->x, row, "", 0, self->width, fg, bg, self->arrow,
+      render_list_item(item_x, row, "", 0, item_w, fg, bg, self->arrow,
                        self->arrow_len, false, self->left_pad);
       continue;
     }
@@ -423,8 +488,8 @@ static mp_obj_t vttui_list_draw(mp_obj_t self_in) {
                                   MP_OBJ_SENTINEL);
     size_t text_len;
     const char *text = mp_obj_str_get_data(item, &text_len);
-    render_list_item(self->x, row, text, text_len, self->width, fg, bg,
-                     self->arrow, self->arrow_len, is_sel, self->left_pad);
+    render_list_item(item_x, row, text, text_len, item_w, fg, bg, self->arrow,
+                     self->arrow_len, is_sel, self->left_pad);
   }
 
   self->last_selected = self->selected;
@@ -439,10 +504,11 @@ static void list_set_selected(vttui_list_obj_t *self, int idx) {
   if (idx >= self->item_count)
     idx = self->item_count - 1;
   self->selected = idx;
+  int vis_h = self->decorations ? self->height - 2 : self->height;
   if (self->selected < self->scroll)
     self->scroll = self->selected;
-  else if (self->selected >= self->scroll + self->height)
-    self->scroll = self->selected - self->height + 1;
+  else if (self->selected >= self->scroll + vis_h)
+    self->scroll = self->selected - vis_h + 1;
   if (self->on_change != mp_const_none)
     mp_call_function_1(self->on_change, MP_OBJ_NEW_SMALL_INT(self->selected));
 }
@@ -520,6 +586,7 @@ static const mp_arg_t make_list_args[] = {
     {MP_QSTR_left_pad, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0}},
     {MP_QSTR_align, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none}},
     {MP_QSTR_title, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none}},
+    {MP_QSTR_decorations, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false}},
 };
 
 static vttui_list_obj_t *create_list(mp_arg_val_t *args, int abs_x, int abs_y,
@@ -542,8 +609,10 @@ static vttui_list_obj_t *create_list(mp_arg_val_t *args, int abs_x, int abs_y,
     sel = 0;
   if (list->item_count > 0 && sel >= list->item_count)
     sel = list->item_count - 1;
+  list->decorations = args[15].u_bool;
   list->selected = sel;
-  list->scroll = (sel >= height) ? sel - height + 1 : 0;
+  int vis_h = list->decorations ? (height - 2) : height;
+  list->scroll = (sel >= vis_h) ? sel - vis_h + 1 : 0;
 
   list->last_selected = -1;
   list->last_scroll = -1;
@@ -722,6 +791,7 @@ static const mp_arg_t make_input_args[] = {
     {MP_QSTR_input_bg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0}},
     {MP_QSTR_align, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none}},
     {MP_QSTR_decorations, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = true}},
+    {MP_QSTR_value, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none}},
 };
 
 static vttui_input_obj_t *create_input(mp_arg_val_t *args, int abs_x,
@@ -738,6 +808,14 @@ static vttui_input_obj_t *create_input(mp_arg_val_t *args, int abs_x,
   inp->input_bg = (uint32_t)args[8].u_int;
   inp->label_obj = args[0].u_obj;
   inp->buf_len = 0;
+  if (args[11].u_obj != mp_const_none) {
+    size_t vlen;
+    const char *vstr = mp_obj_str_get_data(args[11].u_obj, &vlen);
+    if (vlen > VTTUI_INPUT_MAX)
+      vlen = VTTUI_INPUT_MAX;
+    memcpy(inp->buf, vstr, vlen);
+    inp->buf_len = (int)vlen;
+  }
   inp->decorations = args[10].u_bool;
   return inp;
 }
@@ -856,6 +934,236 @@ static vttui_block_obj_t *create_block(mp_arg_val_t *args, int abs_x, int abs_y,
   blk->text_obj = args[0].u_obj;
   blk->dirty = true;
   return blk;
+}
+
+// ─── VTDialog
+// ─────────────────────────────────────────────────────────────────
+
+static void render_dialog_buttons(vttui_dialog_obj_t *self, int inner_x,
+                                  int inner_y, int inner_w, int inner_h) {
+  size_t b1len, b2len;
+  const char *b1 = mp_obj_str_get_data(self->btn1, &b1len);
+  const char *b2 = mp_obj_str_get_data(self->btn2, &b2len);
+
+  // Each button is "[ label ]" (4 overhead), gap of 3 between them.
+  int total_w = (int)b1len + 4 + 3 + (int)b2len + 4;
+  int bx = inner_x + (inner_w - total_w) / 2;
+  if (bx < inner_x)
+    bx = inner_x;
+  int by = inner_y + inner_h - 1;
+
+  uint32_t fg0 = (self->selected == 0) ? self->sel_fg : self->fg;
+  uint32_t bg0 = (self->selected == 0) ? self->sel_bg : self->bg;
+  uint32_t fg1 = (self->selected == 1) ? self->sel_fg : self->fg;
+  uint32_t bg1 = (self->selected == 1) ? self->sel_bg : self->bg;
+
+  vttui_sgr(fg0, bg0, false);
+  vttui_move(bx, by);
+  vttui_write_str("[ ");
+  vttui_write(b1, b1len);
+  vttui_write_str(" ]");
+  vttui_write_str("\033[0m");
+
+  vttui_sgr(self->fg, self->bg, false);
+  vttui_write_str("   ");
+
+  vttui_sgr(fg1, bg1, false);
+  vttui_write_str("[ ");
+  vttui_write(b2, b2len);
+  vttui_write_str(" ]");
+  vttui_write_str("\033[0m");
+}
+
+static mp_obj_t vttui_dialog_draw(mp_obj_t self_in) {
+  vttui_dialog_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  bool first_draw = (self->last_selected == -1);
+  bool sel_changed = (self->selected != self->last_selected);
+
+  if (!first_draw && !sel_changed)
+    return mp_const_none;
+
+  int inner_x, inner_y, inner_w, inner_h;
+  if (self->decorations) {
+    inner_x = self->x + 1;
+    inner_y = self->y + 1;
+    inner_w = self->width - 2;
+    inner_h = self->height - 2;
+  } else {
+    inner_x = self->x;
+    inner_y = self->y;
+    inner_w = self->width;
+    inner_h = self->height;
+  }
+
+  if (first_draw) {
+    // Clear inner area
+    for (int row = 0; row < inner_h; row++)
+      render_label_raw(inner_x, inner_y + row, "", 0, inner_w, self->fg,
+                       self->bg, false, 0);
+
+    // Border with title
+    if (self->decorations) {
+      int x = self->x, y = self->y, w = self->width, h = self->height;
+      vttui_begin(x, y, self->fg, self->bg, false);
+      vttui_write_str(BOX_TL);
+      if (self->title != mp_const_none) {
+        size_t tlen;
+        const char *title = mp_obj_str_get_data(self->title, &tlen);
+        int inner = w - 2, label_w = (int)tlen + 2;
+        if (label_w <= inner) {
+          int n1 = (inner - label_w) / 2;
+          int n2 = inner - label_w - n1;
+          write_repeat_str(BOX_H, 3, n1);
+          vttui_write_str("\033[1m");
+          vttui_write(" ", 1);
+          vttui_write(title, tlen);
+          vttui_write(" ", 1);
+          vttui_write_str("\033[0m");
+          vttui_begin(x + 1 + n1 + label_w, y, self->fg, self->bg, false);
+          write_repeat_str(BOX_H, 3, n2);
+        } else {
+          write_repeat_str(BOX_H, 3, inner);
+        }
+      } else {
+        write_repeat_str(BOX_H, 3, w - 2);
+      }
+      vttui_write_str(BOX_TR "\033[0m");
+      for (int row = 1; row < h - 1; row++) {
+        vttui_begin(x, y + row, self->fg, self->bg, false);
+        vttui_write_str(BOX_V "\033[0m");
+        vttui_begin(x + w - 1, y + row, self->fg, self->bg, false);
+        vttui_write_str(BOX_V "\033[0m");
+      }
+      vttui_begin(x, y + h - 1, self->fg, self->bg, false);
+      vttui_write_str(BOX_BL);
+      write_repeat_str(BOX_H, 3, w - 2);
+      vttui_write_str(BOX_BR "\033[0m");
+    }
+
+    // Question text — split on \n, center each line, skip last row (buttons)
+    size_t text_len;
+    const char *text = mp_obj_str_get_data(self->text, &text_len);
+    int text_rows = 0;
+    for (size_t i = 0; i < text_len; i++)
+      if (text[i] == '\n')
+        text_rows++;
+    text_rows++; // final line (no trailing newline required)
+
+    int avail_rows = inner_h - 1; // last row is buttons
+    int text_y = inner_y + (avail_rows - text_rows) / 2;
+    if (text_y < inner_y)
+      text_y = inner_y;
+
+    const char *line = text;
+    const char *end = text + text_len;
+    int row = 0;
+    for (const char *p = text; p <= end; p++) {
+      if (p == end || *p == '\n') {
+        int line_len = (int)(p - line);
+        // Center the line within inner_w
+        int pad = (inner_w - line_len) / 2;
+        if (pad < 0)
+          pad = 0;
+        render_label_raw(inner_x + pad, text_y + row, line, (size_t)line_len,
+                         inner_w - pad, self->fg, self->bg, false, 0);
+        row++;
+        line = p + 1;
+      }
+    }
+  }
+
+  // Always redraw buttons on selection change or first draw
+  render_dialog_buttons(self, inner_x, inner_y, inner_w, inner_h);
+  self->last_selected = self->selected;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(vttui_dialog_draw_obj, vttui_dialog_draw);
+
+static mp_obj_t vttui_dialog_left(mp_obj_t self_in) {
+  vttui_dialog_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  if (self->selected > 0)
+    self->selected = 0;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(vttui_dialog_left_obj, vttui_dialog_left);
+
+static mp_obj_t vttui_dialog_right(mp_obj_t self_in) {
+  vttui_dialog_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  if (self->selected < 1)
+    self->selected = 1;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(vttui_dialog_right_obj, vttui_dialog_right);
+
+static const mp_rom_map_elem_t vttui_dialog_locals_dict_table[] = {
+    {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&vttui_dialog_draw_obj)},
+    {MP_ROM_QSTR(MP_QSTR_left), MP_ROM_PTR(&vttui_dialog_left_obj)},
+    {MP_ROM_QSTR(MP_QSTR_right), MP_ROM_PTR(&vttui_dialog_right_obj)},
+};
+static MP_DEFINE_CONST_DICT(vttui_dialog_locals_dict,
+                            vttui_dialog_locals_dict_table);
+
+static void vttui_dialog_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
+  if (dest[0] != MP_OBJ_NULL)
+    return;
+  vttui_dialog_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  if (attr == MP_QSTR_selected || attr == MP_QSTR_value) {
+    dest[0] = MP_OBJ_NEW_SMALL_INT(self->selected);
+    return;
+  }
+  mp_map_elem_t *elem = mp_map_lookup((mp_map_t *)&vttui_dialog_locals_dict.map,
+                                      MP_OBJ_NEW_QSTR(attr), MP_MAP_LOOKUP);
+  if (elem) {
+    dest[0] = elem->value;
+    dest[1] = self_in;
+  }
+}
+
+MP_DEFINE_CONST_OBJ_TYPE(vttui_dialog_type, MP_QSTR_VTDialog, MP_TYPE_FLAG_NONE,
+                         attr, vttui_dialog_attr, locals_dict,
+                         &vttui_dialog_locals_dict);
+
+static const mp_arg_t make_dialog_args[] = {
+    {MP_QSTR_text, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
+    {MP_QSTR_x, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_y, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_width, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_height, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_fg, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_bg, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_btn1,
+     MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_OBJ,
+     {.u_obj = MP_OBJ_NULL}},
+    {MP_QSTR_btn2,
+     MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_OBJ,
+     {.u_obj = MP_OBJ_NULL}},
+    {MP_QSTR_sel_fg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
+    {MP_QSTR_sel_bg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
+    {MP_QSTR_selected, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_title, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none}},
+    {MP_QSTR_decorations, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = true}},
+};
+
+static vttui_dialog_obj_t *create_dialog(mp_arg_val_t *args, int abs_x,
+                                         int abs_y, int width, int height) {
+  vttui_dialog_obj_t *dlg = m_new_obj(vttui_dialog_obj_t);
+  dlg->base.type = &vttui_dialog_type;
+  dlg->x = abs_x;
+  dlg->y = abs_y;
+  dlg->width = width;
+  dlg->height = height;
+  dlg->fg = (uint32_t)args[5].u_int;
+  dlg->bg = (uint32_t)args[6].u_int;
+  dlg->sel_fg = args[9].u_int >= 0 ? (uint32_t)args[9].u_int : dlg->bg;
+  dlg->sel_bg = args[10].u_int >= 0 ? (uint32_t)args[10].u_int : dlg->fg;
+  dlg->text = args[0].u_obj;
+  dlg->btn1 = args[7].u_obj;
+  dlg->btn2 = args[8].u_obj;
+  dlg->title = args[12].u_obj;
+  dlg->selected = args[11].u_int;
+  dlg->last_selected = -1;
+  dlg->decorations = args[13].u_bool;
+  return dlg;
 }
 
 // ─── VTWindow
@@ -1056,6 +1364,27 @@ static mp_obj_t vttui_window_make_block(size_t n_args, const mp_obj_t *pos_args,
 static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_window_make_block_obj, 3,
                                   vttui_window_make_block);
 
+static mp_obj_t vttui_window_make_dialog(size_t n_args,
+                                         const mp_obj_t *pos_args,
+                                         mp_map_t *kw_args) {
+  mp_arg_val_t args[MP_ARRAY_SIZE(make_dialog_args)];
+  mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
+                   MP_ARRAY_SIZE(make_dialog_args), make_dialog_args, args);
+  vttui_window_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+  int rel_x = args[1].u_int, rel_y = args[2].u_int;
+  int width = args[3].u_int, height = args[4].u_int;
+  int max_w = self->inner_w - rel_x, max_h = self->inner_h - rel_y;
+  if (width > max_w)
+    width = max_w;
+  if (height > max_h)
+    height = max_h;
+  int abs_x = self->inner_x + rel_x;
+  int abs_y = self->inner_y + rel_y;
+  return MP_OBJ_FROM_PTR(create_dialog(args, abs_x, abs_y, width, height));
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_window_make_dialog_obj, 1,
+                                  vttui_window_make_dialog);
+
 static const mp_rom_map_elem_t vttui_window_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&vttui_window_draw_obj)},
     {MP_ROM_QSTR(MP_QSTR_invalidate), MP_ROM_PTR(&vttui_window_invalidate_obj)},
@@ -1066,6 +1395,8 @@ static const mp_rom_map_elem_t vttui_window_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_make_list), MP_ROM_PTR(&vttui_window_make_list_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_input), MP_ROM_PTR(&vttui_window_make_input_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_block), MP_ROM_PTR(&vttui_window_make_block_obj)},
+    {MP_ROM_QSTR(MP_QSTR_make_dialog),
+     MP_ROM_PTR(&vttui_window_make_dialog_obj)},
 };
 static MP_DEFINE_CONST_DICT(vttui_window_locals_dict,
                             vttui_window_locals_dict_table);
@@ -1104,25 +1435,27 @@ static mp_obj_t vttui_make_new(const mp_obj_type_t *type, size_t n_args,
   vttui_vttui_obj_t *self = m_new_obj(vttui_vttui_obj_t);
   self->base.type = type;
   self->stream_obj = args[0];
-  self->stream_p = mp_get_stream_raise(args[0], MP_STREAM_OP_WRITE);
   self->width = (n_args > 1) ? mp_obj_get_int(args[1]) : 40;
   self->height = (n_args > 2) ? mp_obj_get_int(args[2]) : 16;
 
-  // Set global stream used by all render helpers.
+  // Set global stream used by draw() and repaint_bars().
   vttui_stream_obj = self->stream_obj;
-  vttui_stream_p = self->stream_p;
 
   return MP_OBJ_FROM_PTR(self);
 }
 
-// draw(): flush the underlying stream to the LCD (calls stream.draw() if
-// present).
+// draw(): flush terminal rows to the LCD, then repaint the bars so they are
+// never obscured by terminal rendering.
 static mp_obj_t vttui_draw(mp_obj_t self_in) {
   vttui_vttui_obj_t *self = MP_OBJ_TO_PTR(self_in);
   mp_obj_t dest[2];
   mp_load_method_maybe(self->stream_obj, MP_QSTR_draw, dest);
   if (dest[0] != MP_OBJ_NULL)
     mp_call_method_n_kw(0, 0, dest);
+  mp_obj_t rb[2];
+  mp_load_method_maybe(self->stream_obj, MP_QSTR_repaint_bars, rb);
+  if (rb[0] != MP_OBJ_NULL)
+    mp_call_method_n_kw(0, 0, rb);
   return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(vttui_draw_obj, vttui_draw);
@@ -1194,6 +1527,16 @@ static mp_obj_t vttui_make_block(size_t n_args, const mp_obj_t *pos_args,
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_make_block_obj, 3, vttui_make_block);
 
+static mp_obj_t vttui_make_dialog(size_t n_args, const mp_obj_t *pos_args,
+                                  mp_map_t *kw_args) {
+  mp_arg_val_t args[MP_ARRAY_SIZE(make_dialog_args)];
+  mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
+                   MP_ARRAY_SIZE(make_dialog_args), make_dialog_args, args);
+  return MP_OBJ_FROM_PTR(create_dialog(args, args[1].u_int, args[2].u_int,
+                                       args[3].u_int, args[4].u_int));
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_make_dialog_obj, 1, vttui_make_dialog);
+
 static mp_obj_t vttui_make_window(size_t n_args, const mp_obj_t *pos_args,
                                   mp_map_t *kw_args) {
   static const mp_arg_t allowed_args[] = {
@@ -1254,6 +1597,7 @@ static const mp_rom_map_elem_t vttui_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_make_list), MP_ROM_PTR(&vttui_make_list_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_input), MP_ROM_PTR(&vttui_make_input_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_block), MP_ROM_PTR(&vttui_make_block_obj)},
+    {MP_ROM_QSTR(MP_QSTR_make_dialog), MP_ROM_PTR(&vttui_make_dialog_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_window), MP_ROM_PTR(&vttui_make_window_obj)},
 };
 static MP_DEFINE_CONST_DICT(vttui_locals_dict, vttui_locals_dict_table);
