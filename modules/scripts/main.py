@@ -9,7 +9,6 @@ import tdeck_kvm
 import os
 import sys
 import time
-import netmgr
 import st7789
 import time
 import status
@@ -155,15 +154,14 @@ sys.ps1 = "\033[1;37m$ \033[0m"
 sys.ps2 = "\033[1;37m. \033[0m"
 
 
+tui = None
+
 class Command:
     def __init__(self, func):
         self.func = func
     def __repr__(self):
         self.func()
         return ""
-
-# Network Manager
-nm = Command(netmgr.connect_wifi)
 
 def vi_example():
     try:
@@ -252,31 +250,14 @@ def ftp_server():
 ftps = Command(ftp_server)
 
 
+def network_manager():
+    global tui
+    if tui is None:
+        import vttui
+        tui = vttui.VTTUI(term, cols, rows)
 
+    import netmgr
+    netmgr.main(tui)
 
-
-def tui_test():
-    import vttui
-    tui = vttui.VTTUI(term, cols, rows)
-
-    clear_screen()
-    tui.draw_label("Hello", 0, 0)
-    tui.draw_label("Centered", 20, 2, align="center")
-    tui.draw_label("Title", 20, 4, fg=0, bg=15, bold=True, align="center")
-    tui.draw_label("[ MENU ]", 0, 6, fg=0, bg=252, bold=True, align="center", width=40)
-    tui.draw_label("Name:", 0, 8, bg=18, width=20, align="right")
-
-
-
-
-
-def tui_demo():
-    import vttui
-    tui = vttui.VTTUI(term, cols, rows)
-
-    import netmgr2
-    netmgr2.menu(tui)
-
-
-d = Command(tui_demo)
+nm = Command(network_manager)
 

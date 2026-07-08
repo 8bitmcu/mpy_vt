@@ -74,6 +74,35 @@ static void vttui_begin(int col, int row, uint32_t fg, uint32_t bg, bool bold) {
   vttui_write(buf, i);
 }
 
+// ESC[0;{1;}38;5;fg;48;5;bgm  (color only, no cursor move)
+static void vttui_sgr(uint32_t fg, uint32_t bg, bool bold) {
+  char buf[32];
+  int i = 0;
+  buf[i++] = '\033';
+  buf[i++] = '[';
+  buf[i++] = '0';
+  if (bold) {
+    buf[i++] = ';';
+    buf[i++] = '1';
+  }
+  buf[i++] = ';';
+  buf[i++] = '3';
+  buf[i++] = '8';
+  buf[i++] = ';';
+  buf[i++] = '5';
+  buf[i++] = ';';
+  i += write_uint(buf + i, fg);
+  buf[i++] = ';';
+  buf[i++] = '4';
+  buf[i++] = '8';
+  buf[i++] = ';';
+  buf[i++] = '5';
+  buf[i++] = ';';
+  i += write_uint(buf + i, bg);
+  buf[i++] = 'm';
+  vttui_write(buf, i);
+}
+
 // ESC[row+1;col+1H  (position only, no attribute change)
 static void vttui_move(int col, int row) {
   char buf[16];
@@ -105,12 +134,20 @@ static void write_repeat_str(const char *s, size_t slen, int n) {
 // ─── UTF-8 box drawing
 // ────────────────────────────────────────────────────────
 
-#define BOX_TL "\xe2\x94\x8c" // ┌
-#define BOX_TR "\xe2\x94\x90" // ┐
-#define BOX_BL "\xe2\x94\x94" // └
-#define BOX_BR "\xe2\x94\x98" // ┘
-#define BOX_H "\xe2\x94\x80"  // ─
-#define BOX_V "\xe2\x94\x82"  // │
+// TODO:
+//#define BOX_TL "\xe2\x94\x8c" // ┌
+//#define BOX_TR "\xe2\x94\x90" // ┐
+//#define BOX_BL "\xe2\x94\x94" // └
+//#define BOX_BR "\xe2\x94\x98" // ┘
+//#define BOX_H "\xe2\x94\x80"  // ─
+//#define BOX_V "\xe2\x94\x82"  // │
+//
+#define BOX_TL "+" // ┌
+#define BOX_TR "+" // ┐
+#define BOX_BL "+" // └
+#define BOX_BR "+" // ┘
+#define BOX_H "-"  // ─
+#define BOX_V "|"  // │
 
 // ─── Internal render helpers
 // ──────────────────────────────────────────────────
@@ -224,6 +261,30 @@ typedef struct _vttui_window_obj_t {
   bool decorations;
   bool dirty;
 } vttui_window_obj_t;
+
+#define VTTUI_INPUT_MAX 255
+
+typedef struct _vttui_input_obj_t {
+  mp_obj_base_t base;
+  int abs_x, abs_y;
+  int width; // total box width including borders
+  uint32_t fg, bg;
+  bool bold, secret;
+  mp_obj_t label_obj;
+  uint32_t input_bg;
+  char buf[VTTUI_INPUT_MAX + 1];
+  int buf_len;
+  bool decorations;
+} vttui_input_obj_t;
+
+typedef struct _vttui_block_obj_t {
+  mp_obj_base_t base;
+  int abs_x, abs_y;
+  int width; // 0 = no fill; >0 = clear each line to this width before writing
+  uint32_t fg, bg; // baseline color; inherited from parent or explicitly set
+  mp_obj_t text_obj;
+  bool dirty;
+} vttui_block_obj_t;
 
 // ─── VTLabel
 // ──────────────────────────────────────────────────────────────────
@@ -511,6 +572,293 @@ static vttui_list_obj_t *create_list(mp_arg_val_t *args, int abs_x, int abs_y,
   return list;
 }
 
+// ─── VTInput
+// ─────────────────────────────────────────────────────────────────
+
+static mp_obj_t vttui_input_draw(mp_obj_t self_in) {
+  vttui_input_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  size_t label_len;
+  const char *label = mp_obj_str_get_data(self->label_obj, &label_len);
+
+  int content_row = self->decorations ? self->abs_y + 1 : self->abs_y;
+
+  // With decorations:    | label [input] |   (inner_w = width-2, input_area =
+  // inner_w - label - 3) Without decorations: label [input]        (input_area
+  // = width - label - 1)
+  int input_area;
+  if (self->decorations) {
+    int inner_w = self->width - 2;
+    input_area = inner_w - (int)label_len - 3;
+  } else {
+    input_area = self->width - (int)label_len - 1;
+  }
+  if (input_area < 1)
+    input_area = 1;
+
+  int start = (self->buf_len > input_area) ? self->buf_len - input_area : 0;
+  int visible = self->buf_len - start;
+
+  if (self->decorations) {
+    // Row 0: +---+
+    int inner_w = self->width - 2;
+    vttui_begin(self->abs_x, self->abs_y, self->fg, self->bg, self->bold);
+    vttui_write("+", 1);
+    write_repeat_str("-", 1, inner_w);
+    vttui_write("+", 1);
+    vttui_write_str("\033[0m");
+  }
+
+  // Content row
+  vttui_begin(self->abs_x, content_row, self->fg, self->bg, self->bold);
+  if (self->decorations)
+    vttui_write("| ", 2);
+  // With decorations: bold is for borders, so label is plain.
+  // Without decorations: bold applies to the label itself.
+  vttui_sgr(self->fg, self->bg, self->decorations ? false : self->bold);
+  vttui_write(label, label_len);
+  vttui_write(" ", 1);
+
+  // Switch to input_bg for the text area
+  vttui_sgr(self->fg, self->input_bg, false);
+  if (self->secret) {
+    write_repeat_str("*", 1, visible);
+  } else {
+    vttui_write(self->buf + start, (size_t)visible);
+  }
+  write_spaces(input_area - visible);
+  if (self->decorations) {
+    // Restore box color for trailing border
+    vttui_sgr(self->fg, self->bg, self->bold);
+    vttui_write(" |", 2);
+  }
+  vttui_write_str("\033[0m");
+
+  if (self->decorations) {
+    // Row 2: +---+
+    int inner_w = self->width - 2;
+    vttui_begin(self->abs_x, self->abs_y + 2, self->fg, self->bg, self->bold);
+    vttui_write("+", 1);
+    write_repeat_str("-", 1, inner_w);
+    vttui_write("+", 1);
+    vttui_write_str("\033[0m");
+  }
+
+  // Park cursor at end of typed text
+  int cursor_x = self->decorations
+                     ? self->abs_x + 2 + (int)label_len + 1 + visible
+                     : self->abs_x + (int)label_len + 1 + visible;
+  vttui_move(cursor_x, content_row);
+
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(vttui_input_draw_obj, vttui_input_draw);
+
+static mp_obj_t vttui_input_push(mp_obj_t self_in, mp_obj_t char_obj) {
+  vttui_input_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  size_t clen;
+  const char *c = mp_obj_str_get_data(char_obj, &clen);
+  if (clen > 0 && self->buf_len < VTTUI_INPUT_MAX) {
+    unsigned char ch = (unsigned char)c[0];
+    if (ch >= 0x20 && ch != 0x7f)
+      self->buf[self->buf_len++] = (char)ch;
+  }
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(vttui_input_push_obj, vttui_input_push);
+
+static mp_obj_t vttui_input_backspace(mp_obj_t self_in) {
+  vttui_input_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  if (self->buf_len > 0)
+    self->buf_len--;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(vttui_input_backspace_obj,
+                                 vttui_input_backspace);
+
+static mp_obj_t vttui_input_clear(mp_obj_t self_in) {
+  ((vttui_input_obj_t *)MP_OBJ_TO_PTR(self_in))->buf_len = 0;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(vttui_input_clear_obj, vttui_input_clear);
+
+static const mp_rom_map_elem_t vttui_input_locals_dict_table[] = {
+    {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&vttui_input_draw_obj)},
+    {MP_ROM_QSTR(MP_QSTR_push), MP_ROM_PTR(&vttui_input_push_obj)},
+    {MP_ROM_QSTR(MP_QSTR_backspace), MP_ROM_PTR(&vttui_input_backspace_obj)},
+    {MP_ROM_QSTR(MP_QSTR_clear), MP_ROM_PTR(&vttui_input_clear_obj)},
+};
+static MP_DEFINE_CONST_DICT(vttui_input_locals_dict,
+                            vttui_input_locals_dict_table);
+
+static void vttui_input_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
+  if (dest[0] != MP_OBJ_NULL)
+    return;
+  vttui_input_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  if (attr == MP_QSTR_value) {
+    dest[0] = mp_obj_new_str(self->buf, (size_t)self->buf_len);
+    return;
+  }
+  mp_map_elem_t *elem = mp_map_lookup((mp_map_t *)&vttui_input_locals_dict.map,
+                                      MP_OBJ_NEW_QSTR(attr), MP_MAP_LOOKUP);
+  if (elem) {
+    dest[0] = elem->value;
+    dest[1] = self_in;
+  }
+}
+
+MP_DEFINE_CONST_OBJ_TYPE(vttui_input_type, MP_QSTR_VTInput, MP_TYPE_FLAG_NONE,
+                         attr, vttui_input_attr, locals_dict,
+                         &vttui_input_locals_dict);
+
+// Shared arg table for make_input on VTTUI and VTWindow.
+static const mp_arg_t make_input_args[] = {
+    {MP_QSTR_label, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
+    {MP_QSTR_x, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_y, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_width, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 40}},
+    {MP_QSTR_fg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
+    {MP_QSTR_bg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
+    {MP_QSTR_bold, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = true}},
+    {MP_QSTR_secret, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false}},
+    {MP_QSTR_input_bg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_align, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none}},
+    {MP_QSTR_decorations, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = true}},
+};
+
+static vttui_input_obj_t *create_input(mp_arg_val_t *args, int abs_x,
+                                       int abs_y) {
+  vttui_input_obj_t *inp = m_new_obj(vttui_input_obj_t);
+  inp->base.type = &vttui_input_type;
+  inp->abs_x = abs_x;
+  inp->abs_y = abs_y;
+  inp->width = args[3].u_int > 4 ? args[3].u_int : 4;
+  inp->fg = args[4].u_int < 0 ? 257 : (uint32_t)args[4].u_int;
+  inp->bg = args[5].u_int < 0 ? 256 : (uint32_t)args[5].u_int;
+  inp->bold = args[6].u_bool;
+  inp->secret = args[7].u_bool;
+  inp->input_bg = (uint32_t)args[8].u_int;
+  inp->label_obj = args[0].u_obj;
+  inp->buf_len = 0;
+  inp->decorations = args[10].u_bool;
+  return inp;
+}
+
+// ─── VTBlock
+// ─────────────────────────────────────────────────────────────────
+
+// Write text, re-injecting the baseline color after every \033[0m reset so
+// that \x1b[0m mid-line doesn't leave a black background on subsequent chars.
+static void write_block_text(const char *text, int len, uint32_t fg,
+                             uint32_t bg) {
+  const char *seg = text;
+  const char *p = text;
+  const char *end = text + len;
+
+  while (p < end) {
+    // Detect \033[0m (4 bytes) or \033[m (3 bytes)
+    if (p[0] == '\033' && (p + 1) < end && p[1] == '[') {
+      if ((p + 3) < end && p[2] == '0' && p[3] == 'm') {
+        vttui_write(seg, (size_t)(p + 4 - seg));
+        vttui_sgr(fg, bg, false);
+        seg = p + 4;
+        p = seg;
+        continue;
+      }
+      if ((p + 2) < end && p[2] == 'm') {
+        vttui_write(seg, (size_t)(p + 3 - seg));
+        vttui_sgr(fg, bg, false);
+        seg = p + 3;
+        p = seg;
+        continue;
+      }
+    }
+    p++;
+  }
+  if (seg < end)
+    vttui_write(seg, (size_t)(end - seg));
+}
+
+static mp_obj_t vttui_block_draw(mp_obj_t self_in) {
+  vttui_block_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  if (!self->dirty)
+    return mp_const_none;
+  self->dirty = false;
+
+  size_t text_len;
+  const char *text = mp_obj_str_get_data(self->text_obj, &text_len);
+
+  const char *line_start = text;
+  const char *end = text + text_len;
+  int row = 0;
+
+  for (const char *p = text; p <= end; p++) {
+    if (p == end || *p == '\n') {
+      int line_len = (int)(p - line_start);
+      vttui_move(self->abs_x, self->abs_y + row);
+      vttui_sgr(self->fg, self->bg, false);
+      if (self->width > 0)
+        write_spaces(self->width);
+      vttui_move(self->abs_x, self->abs_y + row);
+      vttui_sgr(self->fg, self->bg, false);
+      write_block_text(line_start, line_len, self->fg, self->bg);
+      row++;
+      line_start = p + 1;
+    }
+  }
+
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(vttui_block_draw_obj, vttui_block_draw);
+
+static mp_obj_t vttui_block_set(mp_obj_t self_in, mp_obj_t text_obj) {
+  vttui_block_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  self->text_obj = text_obj;
+  self->dirty = true;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(vttui_block_set_obj, vttui_block_set);
+
+static mp_obj_t vttui_block_invalidate(mp_obj_t self_in) {
+  ((vttui_block_obj_t *)MP_OBJ_TO_PTR(self_in))->dirty = true;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(vttui_block_invalidate_obj,
+                                 vttui_block_invalidate);
+
+static const mp_rom_map_elem_t vttui_block_locals_dict_table[] = {
+    {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&vttui_block_draw_obj)},
+    {MP_ROM_QSTR(MP_QSTR_set), MP_ROM_PTR(&vttui_block_set_obj)},
+    {MP_ROM_QSTR(MP_QSTR_invalidate), MP_ROM_PTR(&vttui_block_invalidate_obj)},
+};
+static MP_DEFINE_CONST_DICT(vttui_block_locals_dict,
+                            vttui_block_locals_dict_table);
+
+MP_DEFINE_CONST_OBJ_TYPE(vttui_block_type, MP_QSTR_VTBlock, MP_TYPE_FLAG_NONE,
+                         locals_dict, &vttui_block_locals_dict);
+
+static const mp_arg_t make_block_args[] = {
+    {MP_QSTR_text, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
+    {MP_QSTR_x, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_y, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_fg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
+    {MP_QSTR_bg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
+    {MP_QSTR_width, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0}},
+};
+
+static vttui_block_obj_t *create_block(mp_arg_val_t *args, int abs_x, int abs_y,
+                                       uint32_t fg, uint32_t bg, int width) {
+  vttui_block_obj_t *blk = m_new_obj(vttui_block_obj_t);
+  blk->base.type = &vttui_block_type;
+  blk->abs_x = abs_x;
+  blk->abs_y = abs_y;
+  blk->fg = fg;
+  blk->bg = bg;
+  blk->width = width > 0 ? width : 0;
+  blk->text_obj = args[0].u_obj;
+  blk->dirty = true;
+  return blk;
+}
+
 // ─── VTWindow
 // ─────────────────────────────────────────────────────────────────
 
@@ -657,6 +1005,39 @@ static mp_obj_t vttui_window_make_list(size_t n_args, const mp_obj_t *pos_args,
 static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_window_make_list_obj, 1,
                                   vttui_window_make_list);
 
+static mp_obj_t vttui_window_make_input(size_t n_args, const mp_obj_t *pos_args,
+                                        mp_map_t *kw_args) {
+  mp_arg_val_t args[MP_ARRAY_SIZE(make_input_args)];
+  mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
+                   MP_ARRAY_SIZE(make_input_args), make_input_args, args);
+  vttui_window_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+  int width = args[3].u_int > 4 ? args[3].u_int : 4;
+  int abs_x = (parse_align(args[9].u_obj) == 1)
+                  ? self->inner_x + (self->inner_w - width) / 2
+                  : self->inner_x + args[1].u_int;
+  int abs_y = self->inner_y + args[2].u_int;
+  return MP_OBJ_FROM_PTR(create_input(args, abs_x, abs_y));
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_window_make_input_obj, 4,
+                                  vttui_window_make_input);
+
+static mp_obj_t vttui_window_make_block(size_t n_args, const mp_obj_t *pos_args,
+                                        mp_map_t *kw_args) {
+  mp_arg_val_t args[MP_ARRAY_SIZE(make_block_args)];
+  mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
+                   MP_ARRAY_SIZE(make_block_args), make_block_args, args);
+  vttui_window_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+  int abs_x = self->inner_x + args[1].u_int;
+  int abs_y = self->inner_y + args[2].u_int;
+  uint32_t fg = args[3].u_int >= 0 ? (uint32_t)args[3].u_int : self->fg;
+  uint32_t bg = args[4].u_int >= 0 ? (uint32_t)args[4].u_int : self->bg;
+  int avail = self->inner_w - args[1].u_int;
+  int width = args[5].u_int > 0 ? args[5].u_int : (avail > 0 ? avail : 0);
+  return MP_OBJ_FROM_PTR(create_block(args, abs_x, abs_y, fg, bg, width));
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_window_make_block_obj, 3,
+                                  vttui_window_make_block);
+
 static const mp_rom_map_elem_t vttui_window_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&vttui_window_draw_obj)},
     {MP_ROM_QSTR(MP_QSTR_invalidate), MP_ROM_PTR(&vttui_window_invalidate_obj)},
@@ -665,6 +1046,8 @@ static const mp_rom_map_elem_t vttui_window_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_draw_label), MP_ROM_PTR(&vttui_window_draw_label_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_label), MP_ROM_PTR(&vttui_window_make_label_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_list), MP_ROM_PTR(&vttui_window_make_list_obj)},
+    {MP_ROM_QSTR(MP_QSTR_make_input), MP_ROM_PTR(&vttui_window_make_input_obj)},
+    {MP_ROM_QSTR(MP_QSTR_make_block), MP_ROM_PTR(&vttui_window_make_block_obj)},
 };
 static MP_DEFINE_CONST_DICT(vttui_window_locals_dict,
                             vttui_window_locals_dict_table);
@@ -765,8 +1148,34 @@ static mp_obj_t vttui_make_list(size_t n_args, const mp_obj_t *pos_args,
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_make_list_obj, 1, vttui_make_list);
 
+static mp_obj_t vttui_make_input(size_t n_args, const mp_obj_t *pos_args,
+                                 mp_map_t *kw_args) {
+  mp_arg_val_t args[MP_ARRAY_SIZE(make_input_args)];
+  mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
+                   MP_ARRAY_SIZE(make_input_args), make_input_args, args);
+  vttui_vttui_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]);
+  int width = args[3].u_int > 4 ? args[3].u_int : 4;
+  int abs_x = (parse_align(args[9].u_obj) == 1) ? ((int)self->width - width) / 2
+                                                : args[1].u_int;
+  return MP_OBJ_FROM_PTR(create_input(args, abs_x, args[2].u_int));
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_make_input_obj, 4, vttui_make_input);
+
 // make_window(x, y, *, width=0, height=0, title=None, fg=-1, bg=-1,
 // decorations=True)
+static mp_obj_t vttui_make_block(size_t n_args, const mp_obj_t *pos_args,
+                                 mp_map_t *kw_args) {
+  mp_arg_val_t args[MP_ARRAY_SIZE(make_block_args)];
+  mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
+                   MP_ARRAY_SIZE(make_block_args), make_block_args, args);
+  uint32_t fg = args[3].u_int >= 0 ? (uint32_t)args[3].u_int : 257;
+  uint32_t bg = args[4].u_int >= 0 ? (uint32_t)args[4].u_int : 256;
+  int width = args[5].u_int;
+  return MP_OBJ_FROM_PTR(
+      create_block(args, args[1].u_int, args[2].u_int, fg, bg, width));
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_make_block_obj, 3, vttui_make_block);
+
 static mp_obj_t vttui_make_window(size_t n_args, const mp_obj_t *pos_args,
                                   mp_map_t *kw_args) {
   static const mp_arg_t allowed_args[] = {
@@ -821,6 +1230,8 @@ static const mp_rom_map_elem_t vttui_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_draw_label), MP_ROM_PTR(&vttui_draw_label_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_label), MP_ROM_PTR(&vttui_make_label_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_list), MP_ROM_PTR(&vttui_make_list_obj)},
+    {MP_ROM_QSTR(MP_QSTR_make_input), MP_ROM_PTR(&vttui_make_input_obj)},
+    {MP_ROM_QSTR(MP_QSTR_make_block), MP_ROM_PTR(&vttui_make_block_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_window), MP_ROM_PTR(&vttui_make_window_obj)},
 };
 static MP_DEFINE_CONST_DICT(vttui_locals_dict, vttui_locals_dict_table);
