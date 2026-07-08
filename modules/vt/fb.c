@@ -273,6 +273,12 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
   }
 }
 
+void repaint_bars(void) {
+  if (!current_vt_obj || term.col <= 0)
+    return;
+  xdrawline(top_line_now, 0, -1, term.col);
+}
+
 int xstartdraw(void) {
   // Prepare a display for a frame update
   return 1;

@@ -29,6 +29,7 @@ def main(tui):
 
     lst = None
     ui_state = "MAIN_MENU"
+    tui.enter_altscreen()
     tui.cursor_hide()
     password = ""
 
@@ -82,9 +83,8 @@ def main(tui):
                         wlan.disconnect()
                         break
                     elif char == "q":
-                        tui.clear_screen()
-                        tui.cursor_show()
-                        return
+                        ui_state  = "QUIT"
+                        break
             else:
                 blk = win.make_block(f"{BOLD}Network Status :{CLR}  {RED}Disconnected{CLR}\n",
                     2, 2,
@@ -111,9 +111,8 @@ def main(tui):
                         ui_state = "CREATE_AP"
                         break
                     elif char == "q":
-                        tui.clear_screen()
-                        tui.cursor_show()
-                        return
+                        ui_state = "QUIT"
+                        break
 
         elif ui_state == "SCAN_WIFI":
             win.invalidate()
@@ -175,9 +174,8 @@ def main(tui):
                 elif char == "r":
                     break
                 elif char == "q":
-                    tui.clear_screen()
-                    tui.cursor_show()
-                    return
+                    ui_state = "QUIT"
+                    break
 
         elif ui_state == "INPUT_PWD" and lst is not None:
 
@@ -272,3 +270,9 @@ def main(tui):
         elif ui_state == "CREATE_AP":
             # TODO; currently not supported
             ui_state = "MAIN_MENU"
+
+        elif ui_state == "QUIT":
+            tui.exit_altscreen()
+            tui.cursor_show()
+            return
+

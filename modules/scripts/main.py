@@ -261,3 +261,14 @@ def network_manager():
 
 nm = Command(network_manager)
 
+
+def file_manager():
+    global tui
+    if tui is None:
+        import vttui
+        tui = vttui.VTTUI(term, cols, rows)
+
+    import filemgr
+    filemgr.main(tui)
+
+fm = Command(file_manager)

@@ -62,5 +62,6 @@ extern wchar_t *worddelimiters;
 extern unsigned int defaultcs;
 
 void draw_bar_ansi(const char *text, size_t len, int bar_type);
+void repaint_bars(void);
 
 #endif /* FB_H */

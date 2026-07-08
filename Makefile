@@ -73,6 +73,15 @@ sync_files:
 		$(MP_REMOTE) \
 		mpremote connect $(PORT) cp -r /opt/all_modules/scripts/ :
 
+sync_file:
+	docker run --rm -it \
+		--privileged \
+		-v /dev/bus/usb:/dev/bus/usb \
+		-v $(USER_MODS_DIR):/opt/all_modules \
+		--device=$(PORT):$(PORT) \
+		$(MP_REMOTE) \
+		mpremote connect $(PORT) cp -r /opt/all_modules/scripts/filemgr.py :filemgr.py
+
 clean:
 	docker run --rm -v $(MPY_VOLUME):/opt/micropython $(MP_REMOTE) \
 		/bin/bash -c "make -C /opt/micropython/mpy-cross clean"

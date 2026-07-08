@@ -134,14 +134,13 @@ static void write_repeat_str(const char *s, size_t slen, int n) {
 // ─── UTF-8 box drawing
 // ────────────────────────────────────────────────────────
 
-// TODO:
 //#define BOX_TL "\xe2\x94\x8c" // ┌
 //#define BOX_TR "\xe2\x94\x90" // ┐
 //#define BOX_BL "\xe2\x94\x94" // └
 //#define BOX_BR "\xe2\x94\x98" // ┘
 //#define BOX_H "\xe2\x94\x80"  // ─
 //#define BOX_V "\xe2\x94\x82"  // │
-//
+
 #define BOX_TL "+" // ┌
 #define BOX_TR "+" // ┐
 #define BOX_BL "+" // └
@@ -919,6 +918,25 @@ static mp_obj_t vttui_clear_screen(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(vttui_clear_screen_obj, vttui_clear_screen);
 
+static mp_obj_t vttui_enter_altscreen(mp_obj_t self_in) {
+  vttui_write_str("\033[?1049h");
+  vttui_vttui_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  mp_obj_t dest[2];
+  mp_load_method_maybe(self->stream_obj, MP_QSTR_repaint_bars, dest);
+  if (dest[0] != MP_OBJ_NULL)
+    mp_call_method_n_kw(0, 0, dest);
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(vttui_enter_altscreen_obj,
+                                 vttui_enter_altscreen);
+
+static mp_obj_t vttui_exit_altscreen(mp_obj_t self_in) {
+  vttui_write_str("\033[?1049l");
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(vttui_exit_altscreen_obj,
+                                 vttui_exit_altscreen);
+
 static mp_obj_t vttui_cursor_hide(mp_obj_t self_in) {
   vttui_write_str("\033[?25l");
   return mp_const_none;
@@ -1227,6 +1245,10 @@ static const mp_rom_map_elem_t vttui_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_clear_screen), MP_ROM_PTR(&vttui_clear_screen_obj)},
     {MP_ROM_QSTR(MP_QSTR_cursor_hide), MP_ROM_PTR(&vttui_cursor_hide_obj)},
     {MP_ROM_QSTR(MP_QSTR_cursor_show), MP_ROM_PTR(&vttui_cursor_show_obj)},
+    {MP_ROM_QSTR(MP_QSTR_enter_altscreen),
+     MP_ROM_PTR(&vttui_enter_altscreen_obj)},
+    {MP_ROM_QSTR(MP_QSTR_exit_altscreen),
+     MP_ROM_PTR(&vttui_exit_altscreen_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw_label), MP_ROM_PTR(&vttui_draw_label_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_label), MP_ROM_PTR(&vttui_make_label_obj)},
     {MP_ROM_QSTR(MP_QSTR_make_list), MP_ROM_PTR(&vttui_make_list_obj)},
