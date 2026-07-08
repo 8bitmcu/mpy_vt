@@ -167,6 +167,13 @@ static mp_obj_t vt_vt_bottom_bar_invalidate(mp_obj_t self_in) {
 MP_DEFINE_CONST_FUN_OBJ_1(vt_vt_bottom_bar_invalidate_obj,
                           vt_vt_bottom_bar_invalidate);
 
+// Force repaint of bars to LCD regardless of dirty state
+static mp_obj_t vt_vt_repaint_bars(mp_obj_t self_in) {
+  repaint_bars();
+  return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(vt_vt_repaint_bars_obj, vt_vt_repaint_bars);
+
 static const mp_stream_p_t vt_stream_p = {
     .read = vt_read,
     .write = vt_write,
@@ -220,6 +227,7 @@ static const mp_rom_map_elem_t vtinal_locals_dict_table[] = {
      MP_ROM_PTR(&vt_vt_top_bar_invalidate_obj)},
     {MP_ROM_QSTR(MP_QSTR_bottom_bar_invalidate),
      MP_ROM_PTR(&vt_vt_bottom_bar_invalidate_obj)},
+    {MP_ROM_QSTR(MP_QSTR_repaint_bars), MP_ROM_PTR(&vt_vt_repaint_bars_obj)},
 };
 
 static MP_DEFINE_CONST_DICT(vt_VT_locals_dict, vtinal_locals_dict_table);

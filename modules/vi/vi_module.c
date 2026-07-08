@@ -1,7 +1,7 @@
 #include "vi_module.h"
 #include "py/obj.h"
 #include "py/runtime.h"
-#include "py/stream.h" // Needed for stream protocols
+#include "py/stream.h"
 #include "vi.h"
 #include <stdint.h>
 

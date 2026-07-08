@@ -9,7 +9,6 @@ import tdeck_kvm
 import os
 import sys
 import time
-import netmgr
 import st7789
 import time
 import status
@@ -155,15 +154,14 @@ sys.ps1 = "\033[1;37m$ \033[0m"
 sys.ps2 = "\033[1;37m. \033[0m"
 
 
+tui = None
+
 class Command:
     def __init__(self, func):
         self.func = func
     def __repr__(self):
         self.func()
         return ""
-
-# Network Manager
-nm = Command(netmgr.connect_wifi)
 
 def vi_example():
     try:
@@ -250,3 +248,27 @@ def ftp_server():
         pass
 
 ftps = Command(ftp_server)
+
+
+def network_manager():
+    global tui
+    if tui is None:
+        import vttui
+        tui = vttui.VTTUI(term, cols, rows)
+
+    import netmgr
+    netmgr.main(tui)
+
+nm = Command(network_manager)
+
+
+def file_manager():
+    global tui
+    if tui is None:
+        import vttui
+        tui = vttui.VTTUI(term, cols, rows)
+
+    import filemgr
+    filemgr.main(tui)
+
+fm = Command(file_manager)

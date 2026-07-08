@@ -1,74 +1,15 @@
+#
+# MicroPython TUI Network Manager
+# Copyright (c) 2026 8bitmcu
+# License: MIT
+#
+
 import sys
-import network
 import time
-
-class TerminalMenu:
-    def __init__(self, items, max_visible=10):
-        self.items = items  # List of tuples: (display_string, ssid, authmode)
-        self.max_visible = min(max_visible, len(items))
-        self.current_sel = 0  # Absolute index of selected item
-        self.top_view = 0     # Index of the first item currently visible
-
-    def draw(self):
-        """Renders the scrollable menu using pure ASCII characters."""
-        sys.stdout.write("\x1b[?25l") # Hide cursor
-        sys.stdout.write("\x1b[s")     # Save cursor position
-
-        for i in range(self.max_visible):
-            item_idx = self.top_view + i
-            display_text, _, _ = self.items[item_idx]
-
-            # Leave exactly 3 spaces for structural borders and scroll track
-            truncated_text = display_text[:35]
-            sys.stdout.write("\r\x1b[K") # Clear current line
-
-            # --- Calculate Sidebar Scrollbar Layout (ASCII style) ---
-            num_items = len(self.items)
-            scrollbar_char = "|"  # Sleek ASCII line track
-            if num_items > self.max_visible:
-                handle_pos = int((self.current_sel / (num_items - 1)) * (self.max_visible - 1))
-                if i == handle_pos:
-                    scrollbar_char = "#" # Standard ASCII block handle
-
-            # --- Custom Padding Workaround for MicroPython ---
-            padding_spaces = " " * (35 - len(truncated_text))
-            padded_text = truncated_text + padding_spaces
-
-            if item_idx == self.current_sel:
-                # Active Selection Bar: High-contrast Dark Charcoal Strip + Cyan Highlight Accent Text
-                sys.stdout.write("\x1b[1;38;5;51;48;5;236m > " + padded_text + "\x1b[0;38;5;244;48;5;236m" + scrollbar_char + "\x1b[0m\n")
-            else:
-                # Inactive Rows: Subtle Slate-grey Text on baseline Terminal Canvas
-                sys.stdout.write("\x1b[38;5;246m   " + padded_text + "\x1b[38;5;240m" + scrollbar_char + "\x1b[0m\n")
-
-        sys.stdout.write("\x1b[u\x1b[?25h") # Restore cursor / show
-
-    def move_up(self):
-        if self.current_sel > 0:
-            self.current_sel -= 1
-            if self.current_sel < self.top_view:
-                self.top_view = self.current_sel
-            self.draw()
-
-    def move_down(self):
-        if self.current_sel < len(self.items) - 1:
-            self.current_sel += 1
-            if self.current_sel >= self.top_view + self.max_visible:
-                self.top_view = self.current_sel - self.max_visible + 1
-            self.draw()
-
-    def get_selection(self):
-        return self.items[self.current_sel]
-
+import network
 
 def scan_for_networks():
     """Initializes the Wi-Fi interface and gathers clean metadata targets."""
-    sys.stdout.write("\x1b[2J\x1b[H")
-
-    # Unified Loading Notification matching style guide
-    sys.stdout.write("\x1b[1;37;48;5;18m           NETWORK MANAGER            \x1b[0m\n")
-    sys.stdout.write("\x1b[36m\n  [*] Initializing hardware radio...\n")
-    sys.stdout.write("  [*] Scanning regional spectrum...\x1b[0m")
 
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
@@ -78,93 +19,219 @@ def scan_for_networks():
 
     menu_data = []
     for ap in sorted_scan:
-        ssid = ap[0].decode('utf-8').strip()
+        ssid = ap[0].decode('utf-8', 'ignore').strip()
         rssi = ap[3]
         authmode = ap[4]
 
         if ssid:
-            lock = " [P]" if authmode > 0 else ""
-            display_str = f"{ssid}{lock} ({rssi}dBm)"
+            lock = "[P] " if authmode > 0 else "    "
+            display_str = f"{lock}{ssid} ({rssi}dBm)"
             menu_data.append((display_str, ssid, authmode))
-
-    if not menu_data:
-        menu_data.append(("No networks found. Rescan.", "", 0))
 
     return menu_data
 
+def main(tui):
+    """ Creates a TUI for connecting or creating a Wi-Fi network"""
 
-def get_password_input():
-    """Renders an input dialog block matching the terminal styling rule frameworks."""
-    # Place password layout window perfectly starting at row coordinate line 14 using standard ASCII
-    sys.stdout.write("\x1b[14;1H\x1b[K")
-    sys.stdout.write("\x1b[1;38;5;214m+--------------------------------------+\x1b[0m\n")
-    sys.stdout.write("\x1b[1;38;5;214m| Password: \x1b[0m                           \x1b[1;38;5;214m|\x1b[0m\n")
-    sys.stdout.write("\x1b[1;38;5;214m+--------------------------------------+\x1b[0m")
-
-    # Target character window space index box boundaries (Row 15, Column 13)
-    sys.stdout.write("\x1b[15;13H\x1b[?25h")
-
+    lst = None
+    ui_state = "MAIN_MENU"
+    tui.enter_altscreen()
+    tui.cursor_hide()
     password = ""
-    while True:
-        char = sys.stdin.read(1)
 
-        if char == '\r' or char == '\n':  # Submit
-            break
-        elif char == '\x7f' or char == '\x08':  # Backspace
-            if len(password) > 0:
-                password = password[:-1]
-                sys.stdout.write("\b \b")
-        elif len(password) < 25:  # Length validation clamp
-            password += char
-            sys.stdout.write("*")
+    CLR  = "\x1b[0m"
+    BOLD = "\x1b[1m"
+    GREEN = "\x1b[38;5;121m"
+    RED = "\x1b[38;5;210m"
 
-    return password
-
-
-def connect_wifi():
-    options = scan_for_networks()
-
-    # Base Terminal Theme Layout Painting Block
-    sys.stdout.write("\x1b[2J\x1b[H")
-    header_text = "           NETWORK MANAGER            "
-    sys.stdout.write(f"\x1b[1;37;48;5;18m{header_text}\x1b[0m\n")
-    sys.stdout.write("\x1b[2;38;5;244m W/S: Navigate   |   Enter: Connect\x1b[0m\n\n")
-
-    menu = TerminalMenu(options, max_visible=10)
-    menu.draw()
+    win = tui.make_window(
+            0, 0,
+            width=tui.width, height=tui.height,
+            title="NETWORK MANAGER",
+            fg=252, bg=18)
 
     while True:
-        key = sys.stdin.read(1)
-
-        if key == 'w':
-            menu.move_up()
-        elif key == 's':
-            menu.move_down()
-        elif key == '\r' or key == '\n':
-            display_str, ssid, authmode = menu.get_selection()
-
-            if not ssid:
-                break
-
+        if ui_state == "MAIN_MENU":
+            lst = None
             password = ""
-            if authmode > 0:
-                password = get_password_input()
 
-            # Wipe the operational interaction window canvas cleanly
-            sys.stdout.write("\x1b[14;1H\x1b[J")
+            wlan = network.WLAN(network.STA_IF)
+            wlan.active(True)
+            if wlan.isconnected():
+                ip, subnet, gateway, dns = wlan.ifconfig()
 
-            # ANSI Palettes definitions
-            CLR = "\x1b[0m"
-            BOLD = "\x1b[1m"
-            CYAN = "\x1b[38;5;51m"
-            GREEN = "\x1b[38;5;82m"
-            YELLOW = "\x1b[38;5;220m"
-            RED = "\x1b[38;5;196m"
-            WHITE_ON_BLUE = "\x1b[37;48;5;18m"
+                blk = win.make_block(
+                    f"{BOLD}Network Status :{CLR}  {GREEN}Connected!{CLR}\n"
+                    f"\n"
+                    f"{BOLD}Network Configuration: {CLR}\n"
+                    f"  {BOLD}IP Address :{CLR}  {GREEN}{ip}{CLR}\n"
+                    f"  {BOLD}Subnet     :{CLR}  {subnet}\n"
+                    f"  {BOLD}Gateway    :{CLR}  {gateway}\n"
+                    f"  {BOLD}DNS Server :{CLR}  {dns}",
+                    2, 2,
+                    fg=252, bg=18)
 
-            sys.stdout.write(f"{CYAN} [*] Initializing handshake with: {BOLD}{ssid}{CLR}\n")
-            sys.stdout.write(f" [*] Authenticating ")
+                status = win.make_label(
+                    "[d]isconnect | [q]uit",
+                    0, win.inner_h - 1,
+                    fg=0, bg=252,
+                    width=win.inner_w)
 
+                win.invalidate()
+                win.draw()
+                blk.draw()
+                status.draw()
+                tui.draw()
+
+                while True:
+                    char = sys.stdin.read(1)
+                    if char == "d":
+                        wlan.disconnect()
+                        break
+                    elif char == "q":
+                        ui_state  = "QUIT"
+                        break
+            else:
+                blk = win.make_block(f"{BOLD}Network Status :{CLR}  {RED}Disconnected{CLR}\n",
+                    2, 2,
+                    fg=252, bg=18)
+
+                status = win.make_label(
+                    "[c]onnect | [n]ew | [q]uit",
+                    0, win.inner_h - 1,
+                    fg=0, bg=252,
+                    width=win.inner_w)
+
+                win.invalidate()
+                win.draw()
+                blk.draw()
+                status.draw()
+                tui.draw()
+
+                while True:
+                    char = sys.stdin.read(1)
+                    if char == "c":
+                        ui_state = "SCAN_WIFI"
+                        break
+                    if char == "n":
+                        ui_state = "CREATE_AP"
+                        break
+                    elif char == "q":
+                        ui_state = "QUIT"
+                        break
+
+        elif ui_state == "SCAN_WIFI":
+
+            scanning = win.make_label(
+                    "Scanning...",
+                    0, win.inner_h//2,
+                    fg=252, bg=18,
+                    align="center")
+
+            win.invalidate()
+            win.draw()
+            scanning.draw()
+            tui.draw()
+
+            networks = scan_for_networks()
+            if networks:
+                labels = [n[0] for n in networks]
+                lst = win.make_list(
+                        labels,
+                        title="Select a Network:",
+                        x=0, y=2,
+                        width=tui.width-10, height=win.inner_h-6,
+                        fg=252, bg=18,
+                        arrow=">", left_pad=1,
+                        align="center")
+            else:
+                no_networks = win.make_label(
+                        "No networks found.",
+                        0, win.inner_h//2,
+                        fg=252, bg=18,
+                        align="center")
+
+            status = win.make_label(
+                    "[w/s] nav | [r]efrsh | [b]ack | [q]uit",
+                    0, win.inner_h-1,
+                    fg=0, bg=252,
+                    width=win.inner_w)
+
+            while True:
+                win.draw()
+                if lst:
+                    lst.draw()
+                else:
+                    no_networks.draw()
+                status.draw()
+                tui.draw()
+
+                char = sys.stdin.read(1)
+                if char == "w" and lst:
+                    lst.up()
+                elif char == "s" and lst:
+                    lst.down()
+                elif (char == '\r' or char == '\n') and lst:
+                    ui_state = "INPUT_PWD" if networks[lst.selected][2] > 0 else "CONNECT_WIFI"
+                    break
+                elif char == "b":
+                    ui_state = "MAIN_MENU"
+                    break
+                elif char == "r":
+                    break
+                elif char == "q":
+                    ui_state = "QUIT"
+                    break
+
+        elif ui_state == "INPUT_PWD" and lst is not None:
+
+            pwd_label = win.make_label(
+                    "Password required for network: ",
+                    0, 1,
+                    fg=252, bg=18,
+                    align="center")
+
+            pwd_label2 = win.make_label(
+                    networks[lst.selected][1],
+                    0, 2,
+                    fg=252, bg=18,
+                    bold=True,
+                    align="center")
+
+            pwd = win.make_input("Password:",
+                    0, 4,
+                    width=win.inner_w-2,
+                    fg=252, bg=18, input_bg=0,
+                    secret=True,
+                    align="center")
+
+            tui.cursor_show()
+            win.invalidate()
+            win.draw()
+            pwd_label.draw()
+            pwd_label2.draw()
+            pwd.draw()
+            tui.draw()
+
+            while True:
+                char = sys.stdin.read(1)
+                if char in ('\r', '\n'):
+                    password = pwd.value
+                    tui.cursor_hide()
+                    ui_state = "CONNECT_WIFI"
+                    break
+                elif char in ('\x08', '\x7f'):  # backspace
+                    pwd.backspace()
+                elif char == '\x1b':            # escape: back to scan wifi
+                    tui.cursor_hide()
+                    ui_state = "SCAN_WIFI"
+                    break
+                else:
+                    pwd.push(char)
+                pwd.draw()
+                tui.draw()
+
+        elif ui_state == "CONNECT_WIFI" and lst is not None:
             wlan = network.WLAN(network.STA_IF)
             wlan.active(True)
 
@@ -173,33 +240,45 @@ def connect_wifi():
                 time.sleep(0.5)
 
             if password:
-                wlan.connect(ssid, password)
+                wlan.connect(networks[lst.selected][1], password)
             else:
-                wlan.connect(ssid)
+                wlan.connect(networks[lst.selected][1])
 
-            timeout = 15
-            connected = True
+            win.invalidate()
+            win.draw()
+            tui.draw()
 
+            timeout = 0
+            dots = ["   ", ".  ", ".. ", "..."]
             while not wlan.isconnected():
-                sys.stdout.write(f"{YELLOW}.{CLR}")
+                win.draw_label(f"Connecting{dots[timeout % 4]}",
+                               0, win.inner_h // 2,
+                               fg=252, bg=18,
+                               align="center")
+                tui.draw()
                 time.sleep(1)
-                timeout -= 1
-                if timeout <= 0:
-                    connected = False
+                timeout += 1
+                if timeout >= 15:
                     break
 
-            if connected:
-                # Render clean, structured reporting metrics output card
-                sys.stdout.write(f"\n\n{BOLD}{GREEN} [V] Wi-Fi Successfully Connected!{CLR}\n\n")
-                ip, subnet, gateway, dns = wlan.ifconfig()
+            if not wlan.isconnected():
+                win.invalidate()
+                win.draw()
+                win.draw_label("Connection failed. Press any key.",
+                               0, win.inner_h // 2,
+                               fg=210, bg=18,
+                               align="center")
+                tui.draw()
+                sys.stdin.read(1)
 
-                sys.stdout.write(f"{WHITE_ON_BLUE}         NETWORK CONFIGURATION          {CLR}\n")
-                sys.stdout.write(f" {BOLD}IP Address :{CLR}  {GREEN}{ip}{CLR}\n")
-                sys.stdout.write(f" {BOLD}Subnet     :{CLR}  {subnet}\n")
-                sys.stdout.write(f" {BOLD}Gateway    :{CLR}  {gateway}\n")
-                sys.stdout.write(f" {BOLD}DNS Server :{CLR}  {dns}\n")
-                sys.stdout.write(f"\x1b[38;5;240m{'-' * 40}{CLR}\n")
-            else:
-                sys.stdout.write(f"\n\n{BOLD}{RED} [X] Connection Fault: Handshake Timed Out.{CLR}\n")
+            ui_state = "MAIN_MENU"
 
-            break
+        elif ui_state == "CREATE_AP":
+            # TODO; currently not supported
+            ui_state = "MAIN_MENU"
+
+        elif ui_state == "QUIT":
+            tui.exit_altscreen()
+            tui.cursor_show()
+            return
+
