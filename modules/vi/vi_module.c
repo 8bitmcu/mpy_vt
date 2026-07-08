@@ -8,30 +8,63 @@
 // Global pointer for vi_main to access the current instance's stream
 vi_vi_obj_t *current_vi_instance = NULL;
 
-// The Constructor: vi.Vi(filename, stream, width, height)
+// The Constructor: vi.Vi(env, args)
 static mp_obj_t vi_vi_make_new(const mp_obj_type_t *type, size_t n_args,
                                size_t n_kw, const mp_obj_t *args) {
-  mp_arg_check_num(n_args, n_kw, 2, 4, false);
+  // Enforce exactly 2 arguments: env (KVM object) and the tuple/list of shell
+  // args
+  mp_arg_check_num(n_args, n_kw, 2, 2, false);
 
   vi_vi_obj_t *self = m_new_obj(vi_vi_obj_t);
   self->base.type = type;
 
-  // Handle Filename
-  if (!mp_obj_is_str(args[0])) {
-    mp_raise_TypeError(MP_ERROR_TEXT("Filename must be a string"));
-  }
-  // Copy the string into the MP heap so it is safe during the vi session
-  const char *fname = mp_obj_str_get_str(args[0]);
-
-  // Handle Stream (e.g., KVM object)
-  self->stream_obj = args[1];
+  // 1. Handle Stream / Environment (args[0])
+  self->stream_obj = args[0];
   self->stream_p = mp_get_stream_raise(self->stream_obj,
                                        MP_STREAM_OP_READ | MP_STREAM_OP_WRITE);
 
-  // Handle Dimensions
+  // 2. Safe Dimension Lookup from env (with defaults)
   int tw = 40, th = 16;
-  self->width = (n_args > 2) ? mp_obj_get_int(args[2]) : tw;
-  self->height = (n_args > 3) ? mp_obj_get_int(args[3]) : th;
+  mp_obj_t dest[2];
+
+  // Lookup Width/Cols
+  mp_load_method_maybe(self->stream_obj, MP_QSTR_cols, dest);
+  if (dest[0] != MP_OBJ_NULL) {
+    tw = mp_obj_get_int(dest[0]);
+  } else {
+    mp_load_method_maybe(self->stream_obj, qstr_from_str("width"), dest);
+    if (dest[0] != MP_OBJ_NULL) {
+      tw = mp_obj_get_int(dest[0]);
+    }
+  }
+
+  // Lookup Height/Rows
+  mp_load_method_maybe(self->stream_obj, MP_QSTR_rows, dest);
+  if (dest[0] != MP_OBJ_NULL) {
+    th = mp_obj_get_int(dest[0]);
+  } else {
+    mp_load_method_maybe(self->stream_obj, qstr_from_str("height"), dest);
+    if (dest[0] != MP_OBJ_NULL) {
+      th = mp_obj_get_int(dest[0]);
+    }
+  }
+
+  self->width = tw;
+  self->height = th;
+
+  // 3. Handle Shell Arguments Array (args[1])
+  size_t shell_argc = 0;
+  mp_obj_t *shell_argv;
+  mp_obj_get_array(args[1], &shell_argc, &shell_argv);
+
+  // Extract Filename if provided, otherwise default to an empty buffer string
+  const char *fname = "";
+  if (shell_argc > 0) {
+    if (!mp_obj_is_str(shell_argv[0])) {
+      mp_raise_TypeError(MP_ERROR_TEXT("Filename must be a string"));
+    }
+    fname = mp_obj_str_get_str(shell_argv[0]);
+  }
 
   current_vi_instance = self;
 

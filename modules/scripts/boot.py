@@ -25,6 +25,16 @@ except OSError as e:
 
 try:
     os.chdir('/flash')
+
+    with open("example.md", "x") as f:
+        f.write("Hello, T-Deck!\n")
+        f.write("==============\n")
+        f.write("Lorem ipsum dolor sit amet, consectetur\n")
+        f.write("adipiscing elit, sed do eiusmod tempor\n")
+        f.write("incididunt ut labore et dolore magna\n")
+        f.write("aliqua. Ut enim ad minim veniam, quis\n")
+        f.write("nostrud exercitation ullamco laboris\n")
+        f.write("nisi ut aliquip ex ea commodo consequat.\n")
 except:
     pass
 

@@ -17,14 +17,25 @@ OPT_SGA  = 3   # Suppress Go Ahead
 OPT_NAWS = 31  # Negotiate About Window Size
 
 class TelnetClient:
-    def __init__(self, host, port, stream, cols, rows):
-        self.host = host
-        self.port = port
-        self.cols = cols
-        self.rows = rows
-        self.stream = stream
+    def __init__(self, env, *args):
+        if not args:
+            raise ValueError("Usage: telnet <host> [port]")
+
+        self.host = args[0]
+
+        if len(args) > 1:
+            try:
+                self.port = int(args[1])
+            except ValueError:
+                raise ValueError(f"Invalid port number: {args[1]}")
+        else:
+            self.port = 23
+
+        self.env = env
+        self.cols = env.cols
+        self.rows = env.rows
         self.connected = False
-        
+
         # State Machine Tracking
         self.buffer = b""
         self.partial_seq = b""
@@ -52,6 +63,12 @@ class TelnetClient:
 
         payload = bytes([IAC, SB, OPT_NAWS, w_h, w_l, h_h, h_l, IAC, SE])
         self.socket.send(payload)
+
+    def run(self):
+        try:
+            self.process()
+        except KeyboardInterrupt:
+            self.close()
 
     def process(self):
         while self.connected:
@@ -84,13 +101,13 @@ class TelnetClient:
                     if IAC in data:
                         self._process_complex_data(data)
                     else:
-                        self.stream.write(data)
+                        self.env.write(data)
 
             except OSError:
                 pass
 
             buf = bytearray(1)
-            if self.stream.readinto(buf):
+            if self.env.readinto(buf):
                 char_byte = buf[0]
                 if char_byte == 13:
                     self.socket.send(b'\r\n')
@@ -143,7 +160,7 @@ class TelnetClient:
                     i += 1
 
         if clean_data:
-            self.stream.write(clean_data)
+            self.env.write(clean_data)
 
 
     def _handle_negotiation(self, command, option):
@@ -182,4 +199,4 @@ class TelnetClient:
         if self.connected:
             self.connected = False
             self.socket.close()
-            self.stream.write("\nDisconnected.\n")
+            self.env.write("\nDisconnected.\n")

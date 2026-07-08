@@ -30,9 +30,10 @@ def scan_for_networks():
 
     return menu_data
 
-def main(tui):
+def main(env):
     """ Creates a TUI for connecting or creating a Wi-Fi network"""
 
+    tui = env.tui
     lst = None
     ui_state = "MAIN_MENU"
     tui.enter_altscreen()

@@ -11,7 +11,10 @@ import sys
 import time
 import st7789
 import time
-import status
+import statusbar
+import shell
+import apps
+
 
 # Screen dimensions in pixel
 screen_width = 320
@@ -43,9 +46,7 @@ try:
     sd = sdcard.SDCard(sd_spi, machine.Pin(39, machine.Pin.OUT))
 
     os.mount(os.VfsFat(sd), '/sd')
-    print("SD mounted at /sd")
 except Exception as e:
-    print("SD mount failed: ", e)
     sd = None
 
 # Create hardware SPI; this configures the GPIO matrix for pins 40/41.
@@ -86,7 +87,7 @@ kvm = tdeck_kvm.KVM(term , kbd)
 os.dupterm(kvm)
 
 # Status bar component
-sts = status.StatusBar(term, width=cols)
+sts = statusbar.StatusBar(term, width=cols)
 sts.refresh()
 
 # The FAST loop (30ms)
@@ -116,7 +117,7 @@ def scheduled_fast(_):
 
     term.draw()
 
-def fast_loop(t):
+def fast_loop(_):
     # Use schedule to keep the ISR (Interrupt Service Routine) light
     micropython.schedule(scheduled_fast, 0)
 
@@ -124,7 +125,7 @@ def fast_loop(t):
 def scheduled_slow(_):
     sts.refresh()
 
-def slow_loop(t):
+def slow_loop(_):
     # Update the status bar string (ANSI parsing happens here)
     micropython.schedule(scheduled_slow, 0)
 
@@ -134,7 +135,6 @@ draw_timer.init(period=30, mode=machine.Timer.PERIODIC, callback=fast_loop)
 
 statusbar_timer = machine.Timer(1)
 statusbar_timer.init(period=1000, mode=machine.Timer.PERIODIC, callback=slow_loop)
-
 
 # Choose your cursor:
 
@@ -147,128 +147,8 @@ sys.stdout.write("\x1b[ 6 q")
 # Block Cursor (default)
 #sys.stdout.write("\x1b[ 2 q")
 
+# "REPL" into a custom, simple shell
+kvm.shell = shell.Shell(kvm)
+apps.register_apps(kvm.shell)
+kvm.shell.run()
 
-
-# Overwrite prompt (optional)
-sys.ps1 = "\033[1;37m$ \033[0m"
-sys.ps2 = "\033[1;37m. \033[0m"
-
-
-tui = None
-
-class Command:
-    def __init__(self, func):
-        self.func = func
-    def __repr__(self):
-        self.func()
-        return ""
-
-def vi_example():
-    try:
-        with open("example.md", "x") as f:
-            f.write("Hello, T-Deck!\n")
-            f.write("==============\n")
-            f.write("Lorem ipsum dolor sit amet, consectetur\n")
-            f.write("adipiscing elit, sed do eiusmod tempor\n")
-            f.write("incididunt ut labore et dolore magna\n")
-            f.write("aliqua. Ut enim ad minim veniam, quis\n")
-            f.write("nostrud exercitation ullamco laboris\n")
-            f.write("nisi ut aliquip ex ea commodo consequat.\n")
-    except:
-        pass
-
-    import vi as _vi
-    _vi.Vi("example.md", kvm, cols, rows)
-
-vi = Command(vi_example)
-
-def check_leaks():
-    import gc
-    for i in range(10):
-        before = gc.mem_free()
-        time.sleep(1)
-        after = gc.mem_free()
-        print(f"Leak: {before - after} bytes/sec")
-
-leak = Command(check_leaks)
-
-def last_reset_cause():
-    _reset_names = {
-        machine.PWRON_RESET: "PWRON_RESET (power-on)",
-        machine.HARD_RESET: "HARD_RESET (panic / external reset)",
-        machine.WDT_RESET: "WDT_RESET (watchdog timeout)",
-        machine.DEEPSLEEP_RESET: "DEEPSLEEP_RESET (woke from deep sleep)",
-        machine.SOFT_RESET: "SOFT_RESET (soft reboot)",
-    }
-    _reset_cause = machine.reset_cause()
-    print("Last reset cause: %s [%d]" % (_reset_names.get(_reset_cause, "UNKNOWN"), _reset_cause))
-
-debug_reset = Command(last_reset_cause)
-
-
-def clear_screen():
-    print("\033[2J\033[H", end="")
-
-clear = Command(clear_screen)
-
-# Example: Telehack (great for testing text formatting)
-# Host: telehack.com, Port: 23
-def telnet_telehack():
-    import telnet
-    client = telnet.TelnetClient("telehack.com", 23, kvm, cols=cols, rows=rows)
-    try:
-        client.process()
-    except KeyboardInterrupt:
-        client.close()
-
-telehack = Command(telnet_telehack)
-
-def telnet_retrocampus():
-    import telnet
-    client = telnet.TelnetClient("bbs.retrocampus.com", 23, kvm, cols=cols, rows=rows)
-    try:
-        client.process()
-    except KeyboardInterrupt:
-        client.close()
-
-retrocampus = Command(telnet_retrocampus)
-
-def zm_zork():
-    import zm
-    m = zm.ZMachine("/sd/zork1.dat", kvm, cols, rows)
-    m.run()
-
-zork = Command(zm_zork)
-
-def ftp_server():
-    import ftpserver
-    try:
-        ftpserver.start()
-    except KeyboardInterrupt:
-        pass
-
-ftps = Command(ftp_server)
-
-
-def network_manager():
-    global tui
-    if tui is None:
-        import vttui
-        tui = vttui.VTTUI(term, cols, rows)
-
-    import netmgr
-    netmgr.main(tui)
-
-nm = Command(network_manager)
-
-
-def file_manager():
-    global tui
-    if tui is None:
-        import vttui
-        tui = vttui.VTTUI(term, cols, rows)
-
-    import filemgr
-    filemgr.main(tui)
-
-fm = Command(file_manager)

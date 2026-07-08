@@ -13,27 +13,23 @@ jmp_buf frotz_exit_env;
 // Global pointer for frotz_main to access the current instance's stream
 zm_zm_obj_t *current_frotz_instance = NULL;
 
-// The constructor: zm.ZMachine("file.z5")
+// New constructor signature: zm.ZMachine(env, args)
 static mp_obj_t zm_make_new(const mp_obj_type_t *type, size_t n_args,
                             size_t n_kw, const mp_obj_t *args) {
-  mp_arg_check_num(n_args, n_kw, 2, 4, false);
+  // Expects exactly 2 arguments: the stream (env) and the tuple/list of shell
+  // args
+  mp_arg_check_num(n_args, n_kw, 2, 2, false);
 
   zm_zm_obj_t *self = m_new_obj(zm_zm_obj_t);
   self->base.type = type;
 
-  if (!mp_obj_is_str(args[0])) {
-    mp_raise_TypeError(MP_ERROR_TEXT("Filename must be a string"));
-  }
-  self->fname = mp_obj_str_get_str(args[0]);
-
   // Handle Stream (e.g., KVM object)
-  self->stream_obj = args[1];
+  self->stream_obj = args[0];
   self->stream_p = mp_get_stream_raise(self->stream_obj,
                                        MP_STREAM_OP_READ | MP_STREAM_OP_WRITE);
 
-  int tw = 40, th = 16;
-  self->width = (n_args > 2) ? mp_obj_get_int(args[2]) : tw;
-  self->height = (n_args > 3) ? mp_obj_get_int(args[3]) : th;
+  // Store the raw MicroPython tuple/list containing shell arguments
+  self->args_obj = args[1];
 
   current_frotz_instance = self;
 
@@ -44,24 +40,49 @@ static mp_obj_t zm_make_new(const mp_obj_type_t *type, size_t n_args,
 static mp_obj_t zm_run(mp_obj_t self_in) {
   zm_zm_obj_t *self = MP_OBJ_TO_PTR(self_in);
 
+  // Dynamically read .cols and .rows from Python 'env' object
+  // (qstr_from_str ensures it resolves correctly at runtime)
+  int tw =
+      mp_obj_get_int(mp_load_attr(self->stream_obj, qstr_from_str("cols")));
+  int th =
+      mp_obj_get_int(mp_load_attr(self->stream_obj, qstr_from_str("rows")));
+
   char width_str[16];
   char height_str[16];
+  snprintf(width_str, sizeof(width_str), "%d", tw);
+  snprintf(height_str, sizeof(height_str), "%d", th);
 
-  snprintf(width_str, sizeof(width_str), "%d", self->width);
-  snprintf(height_str, sizeof(height_str), "%d", self->height);
+  // Extract the user-typed arguments from shell tuple/list
+  size_t shell_argc = 0;
+  mp_obj_t *shell_argv;
+  mp_obj_get_array(self->args_obj, &shell_argc, &shell_argv);
 
-  char *dummy_argv[] = {
-      "dfrotz",    // argv[0]
-      "-w",        // argv[1]
-      width_str,   // argv[2]
-      "-h",        // argv[3]
-      height_str,  // argv[4]
-      self->fname, // argv[5]
-      NULL         // Required terminator
-  };
+  // 3. Calculate total argc: 5 hardcoded slots + whatever the user typed
+  // Slots: [0]: "dfrotz", [1]: "-w", [2]: width, [3]: "-h", [4]: height
+  int total_argc = 5 + shell_argc;
 
+  // 4. Allocate the array on the stack (+1 for the trailing NULL)
+  char *dummy_argv[total_argc + 1];
+
+  // 5. Inject auto-configuration flags
+  dummy_argv[0] = "dfrotz";
+  dummy_argv[1] = "-w";
+  dummy_argv[2] = width_str;
+  dummy_argv[3] = "-h";
+  dummy_argv[4] = height_str;
+
+  // 6. Append the user's shell arguments (like the filename or extra flags)
+  for (size_t i = 0; i < shell_argc; i++) {
+    if (!mp_obj_is_str(shell_argv[i])) {
+      mp_raise_TypeError(MP_ERROR_TEXT("All shell arguments must be strings"));
+    }
+    dummy_argv[5 + i] = (char *)mp_obj_str_get_str(shell_argv[i]);
+  }
+  dummy_argv[total_argc] = NULL; // Terminate array securely
+
+  // 7. Execute Frotz safely
   if (setjmp(frotz_exit_env) == 0) {
-    frotz_main(6, dummy_argv);
+    frotz_main(total_argc, dummy_argv);
   }
 
   return mp_const_none;

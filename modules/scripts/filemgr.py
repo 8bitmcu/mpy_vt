@@ -6,8 +6,15 @@
 import os
 import sys
 
-# TODO: open
-
+file_association = {
+    "txt": "vi",
+    "md": "vi",
+    "py": "vi",
+    "conf": "vi",
+    "dat": "zm",
+    "z3": "zm",
+    "z5": "zm",
+}
 
 def fmt_size(size):
     if size < 1024:
@@ -54,9 +61,10 @@ def show_error(win, tui, msg):
         if char in ('\r', '\n'):
             break
 
-def main(tui):
+def main(env):
     """ Creates a TUI for browsing and manipulating files """
 
+    tui = env.tui
     ui_state = "MAIN_MENU"
     tui.enter_altscreen()
     tui.cursor_hide()
@@ -141,6 +149,13 @@ def main(tui):
                             mode = os.stat(new_path)[0]
                             if mode & 0x4000:
                                 current_dir = new_path
+                            else:
+                                ext = get_extension(new_path)
+                                if ext in file_association:
+                                    cmd = file_association[ext]
+                                    env.shell.execute(cmd, new_path)
+                                else:
+                                    show_error(win, tui, f"no application for .{ext} files")
                         except OSError:
                             pass
                     break
