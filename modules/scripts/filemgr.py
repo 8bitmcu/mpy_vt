@@ -154,6 +154,7 @@ def main(env):
                                 if ext in file_association:
                                     cmd = file_association[ext]
                                     tui.cursor_show()
+                                    tui.clear_screen()
                                     env.shell.execute(cmd, new_path)
                                     tui.cursor_hide()
                                 else:

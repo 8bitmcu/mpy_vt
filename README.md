@@ -51,18 +51,16 @@ This firmware is fully compatible with [Launcher](https://bmorcelli.github.io/La
 
 ### Available commands
 
-You can execute the following commands directly in the MicroPython REPL:
+You can execute the following commands from the built-in shell:
 
 | Command | Description |
 | :---   | :--- |
 | `nm` | Starts the TUI Network Manager |
 | `fm` | Starts the TUI File Manager |
-| `vi` | Opens example.md (with content) within the vi port |
-| `leak` | Check for MicroPython memory leaks |
-| `clear` | Clears the screen |
-| `telehack` | Connects telnet to telehack.com |
-| `retrocampus` | Connects telnet to bbs.retrocampus.com |
-| `zork` | Launches Zork through the ZMachine interpreter. Note: `zork1.dat` must be present on your SD card root directory |
+| `vi` | Opens the vi port |
+| `cls` | Clears the screen |
+| `telnet` | Connects to a telnet server (try `telehack.com` or `bbs.retrocampus.com`) |
+| `zm` | Launches `dfrotz`, the ZMachine interpreter |
 | `ftps` | Launches a FTP Server on `/` with user `admin` and pwd `admin`. **NOTE**: supports a single connection only |
 
 ## 🚀 VT Features

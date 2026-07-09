@@ -157,18 +157,24 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
       // Box drawing font (optional — only present if font was converted with
       // -b)
       mp_buffer_info_t box_buf = {0};
-      uint32_t box_first = 0, box_last = 0;
+      uint32_t box_codepoints[32];
+      size_t box_count = 0;
       mp_obj_t box_font_obj =
           mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font_regular->globals),
-                          MP_OBJ_NEW_QSTR(qstr_from_str("UNICODEBOX_FONT")));
+                          MP_OBJ_NEW_QSTR(qstr_from_str("UNICODE_FONT")));
       if (box_font_obj != MP_OBJ_NULL && box_font_obj != mp_const_none) {
         mp_get_buffer_raise(box_font_obj, &box_buf, MP_BUFFER_READ);
-        box_first = mp_obj_get_int(mp_obj_dict_get(
-            MP_OBJ_TO_PTR(vt->font_regular->globals),
-            MP_OBJ_NEW_QSTR(qstr_from_str("UNICODEBOX_FIRST"))));
-        box_last = mp_obj_get_int(
+        mp_obj_t chars_obj =
             mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font_regular->globals),
-                            MP_OBJ_NEW_QSTR(qstr_from_str("UNICODEBOX_LAST"))));
+                            MP_OBJ_NEW_QSTR(qstr_from_str("UNICODE_CHARS")));
+        if (chars_obj != MP_OBJ_NULL && chars_obj != mp_const_none) {
+          box_count = (size_t)mp_obj_get_int(mp_obj_len(chars_obj));
+          if (box_count > 32)
+            box_count = 32;
+          for (size_t j = 0; j < box_count; j++)
+            box_codepoints[j] = (uint32_t)mp_obj_get_int(mp_obj_subscr(
+                chars_obj, MP_OBJ_NEW_SMALL_INT(j), MP_OBJ_SENTINEL));
+        }
       }
 
       // caching
@@ -194,10 +200,15 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
                                     ? (uint8_t *)bold_buf.buf
                                     : (uint8_t *)reg_buf.buf;
           font_ptr_cache[i] = base + offset;
-        } else if (box_buf.buf && char_val >= box_first &&
-                   char_val <= box_last) {
-          uint32_t offset = (char_val - box_first) * (f_height * wide);
-          font_ptr_cache[i] = (uint8_t *)box_buf.buf + offset;
+        } else if (box_buf.buf && box_count > 0) {
+          font_ptr_cache[i] = NULL;
+          for (size_t j = 0; j < box_count; j++) {
+            if (box_codepoints[j] == char_val) {
+              font_ptr_cache[i] =
+                  (uint8_t *)box_buf.buf + j * (f_height * wide);
+              break;
+            }
+          }
         } else {
           font_ptr_cache[i] = NULL;
         }

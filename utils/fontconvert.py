@@ -7,7 +7,7 @@ import argparse
 
 BPP = 1
 CHARACTERS = ''.join(chr(c) for c in range(32, 127))
-BOX_DRAWING = ''.join(chr(c) for c in range(0x2500, 0x2519))  # ─ to └┘
+UNICODE_SYM = ''.join(chr(c) for c in (0x2500, 0x2502, 0x250c, 0x2510, 0x2514, 0x2518))
 
 
 def encode_chars(characters, font, char_width, char_height, y_offset, bpp, sample_p, remap, palette):
@@ -40,10 +40,10 @@ def emit_block(varname, bitstring):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog='font2bitmap')
+    parser = argparse.ArgumentParser(prog='fontconvert')
     parser.add_argument('font_file')
     parser.add_argument('font_size', type=int)
-    parser.add_argument('-b', '--box-drawing', action='store_true')
+    parser.add_argument('-u', '--unicode', action='store_true')
     args = parser.parse_args()
 
     bpp = BPP
@@ -85,12 +85,12 @@ def main():
     print()
     emit_block('FONT', encode_chars(CHARACTERS, font, char_width, char_height, y_offset, bpp, sample_p, remap, palette))
 
-    if args.box_drawing:
+    if args.unicode:
+        codepoints = ', '.join(hex(ord(c)) for c in UNICODE_SYM)
         print()
-        print(f'UNICODEBOX_FIRST = {hex(ord(BOX_DRAWING[0]))}')
-        print(f'UNICODEBOX_LAST = {hex(ord(BOX_DRAWING[-1]))}')
+        print(f'UNICODE_CHARS = ({codepoints},)')
         print()
-        emit_block('UNICODEBOX_FONT', encode_chars(BOX_DRAWING, font, char_width, char_height, y_offset, bpp, sample_p, remap, palette))
+        emit_block('UNICODE_FONT', encode_chars(UNICODE_SYM, font, char_width, char_height, y_offset, bpp, sample_p, remap, palette))
 
 
 main()
