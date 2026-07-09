@@ -1,5 +1,29 @@
 import sys
 
+def _parse_args(line):
+    """Split a command line respecting single and double quoted strings."""
+    parts = []
+    current = []
+    in_quote = None
+    for ch in line:
+        if in_quote:
+            if ch == in_quote:
+                in_quote = None
+            else:
+                current.append(ch)
+        elif ch in ('"', "'"):
+            in_quote = ch
+        elif ch == ' ':
+            if current:
+                parts.append(''.join(current))
+                current = []
+        else:
+            current.append(ch)
+    if current:
+        parts.append(''.join(current))
+    return parts
+
+
 class Command:
     def __init__(self, func, env):
         self.func = func
@@ -13,10 +37,13 @@ class Command:
             sys.print_exception(e)
 
 class Shell:
+    _MAX_HISTORY = 20
+
     def __init__(self, env):
         self.env = env
         self.apps = {}
         self.running = True
+        self._history = []
 
     def register(self, name, func):
         self.apps[name] = Command(func, self.env)
@@ -32,10 +59,46 @@ class Shell:
     def _read_line(self, prompt):
         print(prompt, end="")
         buffer = ""
+        hist_idx = len(self._history)  # one past end = live input
+        saved = ""                     # stash for in-progress line while browsing
 
         while True:
             char = sys.stdin.read(1)
             if not char:
+                continue
+
+            if char == '\x01':
+                # Ctrl-A: mpremote raw REPL request. Re-inject the byte so
+                # the MicroPython C REPL loop sees it after the shell exits,
+                # then exit so it can handle the raw REPL handshake.
+                self.env.inject('\x01')
+                raise EOFError
+
+            if char == '\x1b':
+                # Consume ESC [ A/B sequences (3 bytes total)
+                nxt = sys.stdin.read(1)
+                if nxt == '[':
+                    seq = sys.stdin.read(1)
+                    if seq == 'A' and self._history:        # UP
+                        if hist_idx == len(self._history):
+                            saved = buffer
+                        if hist_idx > 0:
+                            hist_idx -= 1
+                            new_buf = self._history[hist_idx]
+                            print('\b \b' * len(buffer) + new_buf, end='')
+                            buffer = new_buf
+                    elif seq == 'B' and self._history:      # DOWN
+                        if hist_idx < len(self._history):
+                            hist_idx += 1
+                            new_buf = self._history[hist_idx] if hist_idx < len(self._history) else saved
+                            print('\b \b' * len(buffer) + new_buf, end='')
+                            buffer = new_buf
+                else:
+                    # Bare ESC (trackball click): clear the current line
+                    print('\b \b' * len(buffer), end='')
+                    buffer = ""
+                    hist_idx = len(self._history)
+                    saved = ""
                 continue
 
             if char in ('\r', '\n'):
@@ -43,11 +106,11 @@ class Shell:
                 return buffer.strip()
 
             elif char in ('\x08', '\x7f'):
-                if len(buffer) > 0:
+                if buffer:
                     buffer = buffer[:-1]
                     print('\b \b', end='')
 
-            elif ord(char) >= 32 and ord(char) <= 126:
+            elif 32 <= ord(char) <= 126:
                 buffer += char
                 print(char, end='')
 
@@ -60,6 +123,8 @@ class Shell:
         while self.running:
             try:
                 user_input = self._read_line("\033[38;5;85m$\033[0m ")
+            except EOFError:
+                break  # mpremote Ctrl-A: exit cleanly, C REPL takes over
             except KeyboardInterrupt:
                 print("\r\nType 'exit' to quit.")
                 continue
@@ -67,7 +132,7 @@ class Shell:
             if not user_input:
                 continue
 
-            parts = user_input.split()
+            parts = _parse_args(user_input)
             cmd_name = parts[0]
             args = parts[1:]
 
@@ -77,5 +142,11 @@ class Shell:
                 sorted_apps = sorted(self.apps.keys())
                 print("Available commands:", ", ".join(sorted_apps))
                 continue
+
+            # Record in history, skipping consecutive duplicates
+            if not self._history or self._history[-1] != user_input:
+                if len(self._history) >= self._MAX_HISTORY:
+                    self._history.pop(0)
+                self._history.append(user_input)
 
             self.execute(cmd_name, *args)

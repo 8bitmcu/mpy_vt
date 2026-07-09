@@ -18,6 +18,8 @@
 #include "st.h"
 #include "st7789.h"
 
+extern int twrite(const char *buf, int buflen, int show_ctrl);
+
 // Object Structure ---
 
 extern const mp_obj_type_t st7789_ST7789_type;
@@ -27,18 +29,9 @@ vt_VT_obj_t *current_vt_obj = NULL;
 const mp_obj_type_t vt_VT_type;
 
 static void vt_internal_write(const char *buf, size_t size) {
-  mp_uint_t t0 = mp_hal_ticks_ms();
-  for (size_t i = 0; i < size; i++) {
-    tputc((uchar)buf[i]);
-
-    if ((i & 0x3F) == 0x3F) {
-      mp_uint_t now = mp_hal_ticks_ms();
-      if (now - t0 >= 50) {
-        t0 = now;
-        vTaskDelay(1);
-      }
-    }
-  }
+  twrite(buf, size, 0);
+  if (size > 64)
+    vTaskDelay(1);
 }
 
 static mp_uint_t vt_read(mp_obj_t self_in, void *buf, mp_uint_t size,

@@ -26,15 +26,23 @@ except OSError as e:
 try:
     os.chdir('/flash')
 
-    with open("example.md", "x") as f:
-        f.write("Hello, T-Deck!\n")
-        f.write("==============\n")
-        f.write("Lorem ipsum dolor sit amet, consectetur\n")
-        f.write("adipiscing elit, sed do eiusmod tempor\n")
-        f.write("incididunt ut labore et dolore magna\n")
-        f.write("aliqua. Ut enim ad minim veniam, quis\n")
-        f.write("nostrud exercitation ullamco laboris\n")
-        f.write("nisi ut aliquip ex ea commodo consequat.\n")
+    with open("WELCOME.md", "x") as f:
+        f.write(f"# Welcome to MPY_VT!\n"
+                f"This is your pocket hackable terminal.\n"
+                f"A few things to get you started:\n"
+                f" \n"
+                f"## Navigation\n"
+                f"Trackball up/down  - scroll terminal history\n"
+                f"Trackball left/right  - command history (up/down arrow)\n"
+                f"Trackball click  - send Escape\n"
+                f" \n"
+                f"## Tips\n"
+                f"- Type any command name and press Enter to run it\n"
+                f"- Files live in /flash (internal) and /sd (SD card, if inserted)\n"
+                f"- Type exit to get out of the shell, into Micropython repl\n"
+                f" \n"
+                f"Happy hacking!")
+
 except:
     pass
 

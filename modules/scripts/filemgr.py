@@ -153,7 +153,9 @@ def main(env):
                                 ext = get_extension(new_path)
                                 if ext in file_association:
                                     cmd = file_association[ext]
+                                    tui.cursor_show()
                                     env.shell.execute(cmd, new_path)
+                                    tui.cursor_hide()
                                 else:
                                     show_error(win, tui, f"no application for .{ext} files")
                         except OSError:

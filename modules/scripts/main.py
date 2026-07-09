@@ -152,3 +152,14 @@ kvm.shell = shell.Shell(kvm)
 apps.register_apps(kvm.shell)
 kvm.shell.run()
 
+class Cmd:
+    def __init__(self, func):
+        self.func = func
+    def __repr__(self):
+        self.func()
+        return ""
+
+# quick way to return to the shell from MicroPython
+# just type `sh` into MicroPython to return to our shell
+sh = Cmd(kvm.shell.run)
+

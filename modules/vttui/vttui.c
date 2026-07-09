@@ -140,19 +140,12 @@ static void write_repeat_str(const char *s, size_t slen, int n) {
 // ─── UTF-8 box drawing
 // ────────────────────────────────────────────────────────
 
-// #define BOX_TL "\xe2\x94\x8c" // ┌
-// #define BOX_TR "\xe2\x94\x90" // ┐
-// #define BOX_BL "\xe2\x94\x94" // └
-// #define BOX_BR "\xe2\x94\x98" // ┘
-// #define BOX_H "\xe2\x94\x80"  // ─
-// #define BOX_V "\xe2\x94\x82"  // │
-
-#define BOX_TL "+" // ┌
-#define BOX_TR "+" // ┐
-#define BOX_BL "+" // └
-#define BOX_BR "+" // ┘
-#define BOX_H "-"  // ─
-#define BOX_V "|"  // │
+#define BOX_TL "\xe2\x94\x8c" // ┌
+#define BOX_TR "\xe2\x94\x90" // ┐
+#define BOX_BL "\xe2\x94\x94" // └
+#define BOX_BR "\xe2\x94\x98" // ┘
+#define BOX_H "\xe2\x94\x80"  // ─
+#define BOX_V "\xe2\x94\x82"  // │
 
 // ─── Internal render helpers
 // ──────────────────────────────────────────────────
@@ -673,19 +666,19 @@ static mp_obj_t vttui_input_draw(mp_obj_t self_in) {
   int visible = self->buf_len - start;
 
   if (self->decorations) {
-    // Row 0: +---+
+    // Row 0: ┌───┐
     int inner_w = self->width - 2;
     vttui_begin(self->abs_x, self->abs_y, self->fg, self->bg, self->bold);
-    vttui_write("+", 1);
-    write_repeat_str("-", 1, inner_w);
-    vttui_write("+", 1);
+    vttui_write("\xe2\x94\x8c", 3);
+    write_repeat_str("\xe2\x94\x80", 3, inner_w);
+    vttui_write("\xe2\x94\x90", 3);
     vttui_write_str("\033[0m");
   }
 
   // Content row
   vttui_begin(self->abs_x, content_row, self->fg, self->bg, self->bold);
   if (self->decorations)
-    vttui_write("| ", 2);
+    vttui_write("\xe2\x94\x82 ", 4);
   // With decorations: bold is for borders, so label is plain.
   // Without decorations: bold applies to the label itself.
   vttui_sgr(self->fg, self->bg, self->decorations ? false : self->bold);
@@ -703,17 +696,17 @@ static mp_obj_t vttui_input_draw(mp_obj_t self_in) {
   if (self->decorations) {
     // Restore box color for trailing border
     vttui_sgr(self->fg, self->bg, self->bold);
-    vttui_write(" |", 2);
+    vttui_write(" \xe2\x94\x82", 4);
   }
   vttui_write_str("\033[0m");
 
   if (self->decorations) {
-    // Row 2: +---+
+    // Row 2: └───┘
     int inner_w = self->width - 2;
     vttui_begin(self->abs_x, self->abs_y + 2, self->fg, self->bg, self->bold);
-    vttui_write("+", 1);
-    write_repeat_str("-", 1, inner_w);
-    vttui_write("+", 1);
+    vttui_write("\xe2\x94\x94", 3);
+    write_repeat_str("\xe2\x94\x80", 3, inner_w);
+    vttui_write("\xe2\x94\x98", 3);
     vttui_write_str("\033[0m");
   }
 

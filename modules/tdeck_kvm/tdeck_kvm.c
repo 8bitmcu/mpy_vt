@@ -62,7 +62,6 @@ static mp_uint_t kvm_read(mp_obj_t self_in, void *buf, mp_uint_t size,
   char *dest = (char *)buf;
   mp_uint_t bytes_read = 0;
 
-  // 1. Check Injection Buffer first
   while (bytes_read < size && inject_tail != inject_head) {
     dest[bytes_read++] = inject_buf[inject_tail];
     inject_tail = (inject_tail + 1) % INJECT_BUF_SIZE;
@@ -71,7 +70,6 @@ static mp_uint_t kvm_read(mp_obj_t self_in, void *buf, mp_uint_t size,
   if (bytes_read > 0)
     return bytes_read;
 
-  // 2. Fall back to hardware keyboard if buffer is empty
   const mp_stream_p_t *stream = (const mp_stream_p_t *)MP_OBJ_TYPE_GET_SLOT(
       mp_obj_get_type(self->kbd_instance), protocol);
 

@@ -154,6 +154,23 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
                                           MP_OBJ_NEW_QSTR(MP_QSTR_FONT)),
                           &bold_buf, MP_BUFFER_READ);
 
+      // Box drawing font (optional — only present if font was converted with
+      // -b)
+      mp_buffer_info_t box_buf = {0};
+      uint32_t box_first = 0, box_last = 0;
+      mp_obj_t box_font_obj =
+          mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font_regular->globals),
+                          MP_OBJ_NEW_QSTR(qstr_from_str("UNICODEBOX_FONT")));
+      if (box_font_obj != MP_OBJ_NULL && box_font_obj != mp_const_none) {
+        mp_get_buffer_raise(box_font_obj, &box_buf, MP_BUFFER_READ);
+        box_first = mp_obj_get_int(mp_obj_dict_get(
+            MP_OBJ_TO_PTR(vt->font_regular->globals),
+            MP_OBJ_NEW_QSTR(qstr_from_str("UNICODEBOX_FIRST"))));
+        box_last = mp_obj_get_int(
+            mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font_regular->globals),
+                            MP_OBJ_NEW_QSTR(qstr_from_str("UNICODEBOX_LAST"))));
+      }
+
       // caching
       for (uint16_t i = 0; i < num_cols; i++) {
         int col_idx = _x1 + i;
@@ -177,6 +194,10 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
                                     ? (uint8_t *)bold_buf.buf
                                     : (uint8_t *)reg_buf.buf;
           font_ptr_cache[i] = base + offset;
+        } else if (box_buf.buf && char_val >= box_first &&
+                   char_val <= box_last) {
+          uint32_t offset = (char_val - box_first) * (f_height * wide);
+          font_ptr_cache[i] = (uint8_t *)box_buf.buf + offset;
         } else {
           font_ptr_cache[i] = NULL;
         }
