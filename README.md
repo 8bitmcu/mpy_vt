@@ -4,7 +4,7 @@ This project implements a high-performance, attribute-aware terminal emulator fo
 
 This project features first-class support for the [LILYGO T-Deck](https://s.click.aliexpress.com/e/_c4agv9Wd), transforming it into a standalone portable terminal. The integration leverages the T-Deck’s hardware keyboard, trackball and 320x240 display, utilizing the ESP32-S3's PSRAM to manage the terminal's backbuffer and state.
 
-As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the [vi](https://en.wikipedia.org/wiki/Vi_(text_editor)) **text editor** and [frotz](https://davidgriffith.gitlab.io/frotz/) **ZMachine interpreter** that supports playing classic text games like [Zork](https://en.wikipedia.org/wiki/Zork). The firmware provides a Python-based **Telnet client**, **FTP server**, a TUI based **File Manager** and **Network Manager** demonstrating how the terminal engine can be easily extended.
+As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the [vi](https://en.wikipedia.org/wiki/Vi_(text_editor)) **text editor** and [frotz](https://davidgriffith.gitlab.io/frotz/) **ZMachine interpreter** that supports playing classic text games like [Zork](https://en.wikipedia.org/wiki/Zork). The firmware provides a Python-based **Telnet client**, **FTP server**, a TUI based **File Manager**, **IRC Client** and  **Network Manager** demonstrating how the terminal engine can be easily extended.
 
 | ASCII demo (running on CYD) | vi app |
 | :---: | :---: |
@@ -58,7 +58,8 @@ You can execute the following commands from the built-in shell:
 | `nm` | Starts the TUI Network Manager |
 | `fm` | Starts the TUI File Manager |
 | `vi` | Opens the vi port |
-| `cls` | Clears the screen |
+| `clear` | Clears the screen |
+| `irc` | Connects to an IRC channel given a server, port, nickname and channel |
 | `telnet` | Connects to a telnet server (try `telehack.com` or `bbs.retrocampus.com`) |
 | `zm` | Launches `dfrotz`, the ZMachine interpreter |
 | `ftps` | Launches a FTP Server on `/` with user `admin` and pwd `admin`. **NOTE**: supports a single connection only |

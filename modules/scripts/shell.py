@@ -136,8 +136,26 @@ class Shell:
             cmd_name = parts[0]
             args = parts[1:]
 
+            if cmd_name == "clear":
+                print("\033[2J\033[H", end="")
+                continue
+
+            if cmd_name == "dbgrst":
+                import machine
+                _reset_names = {
+                    machine.PWRON_RESET: "PWRON_RESET (power-on)",
+                    machine.HARD_RESET: "HARD_RESET (panic / external reset)",
+                    machine.WDT_RESET: "WDT_RESET (watchdog timeout)",
+                    machine.DEEPSLEEP_RESET: "DEEPSLEEP_RESET (woke from deep sleep)",
+                    machine.SOFT_RESET: "SOFT_RESET (soft reboot)",
+                }
+                _reset_cause = machine.reset_cause()
+                print("Last reset cause: %s [%d]" % (_reset_names.get(_reset_cause, "UNKNOWN"), _reset_cause))
+                continue
+
             if cmd_name == "exit":
                 break
+
             elif cmd_name == "help":
                 sorted_apps = sorted(self.apps.keys())
                 print("Available commands:", ", ".join(sorted_apps))

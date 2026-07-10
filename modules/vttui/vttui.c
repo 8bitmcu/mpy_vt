@@ -278,7 +278,10 @@ typedef struct _vttui_input_obj_t {
 typedef struct _vttui_block_obj_t {
   mp_obj_base_t base;
   int abs_x, abs_y;
-  int width; // 0 = no fill; >0 = clear each line to this width before writing
+  int width;  // 0 = no fill; >0 = clear each line to this width before writing
+  int height; // 0 = unlimited; >0 = visible rows (used for scroll)
+  bool scroll;
+  bool wrap;
   uint32_t fg, bg; // baseline color; inherited from parent or explicitly set
   mp_obj_t text_obj;
   bool dirty;
@@ -652,12 +655,13 @@ static mp_obj_t vttui_input_draw(mp_obj_t self_in) {
   // With decorations:    | label [input] |   (inner_w = width-2, input_area =
   // inner_w - label - 3) Without decorations: label [input]        (input_area
   // = width - label - 1)
+  int label_gap = label_len > 0 ? 1 : 0;
   int input_area;
   if (self->decorations) {
     int inner_w = self->width - 2;
-    input_area = inner_w - (int)label_len - 3;
+    input_area = inner_w - (int)label_len - label_gap - 2;
   } else {
-    input_area = self->width - (int)label_len - 1;
+    input_area = self->width - (int)label_len - label_gap;
   }
   if (input_area < 1)
     input_area = 1;
@@ -683,7 +687,8 @@ static mp_obj_t vttui_input_draw(mp_obj_t self_in) {
   // Without decorations: bold applies to the label itself.
   vttui_sgr(self->fg, self->bg, self->decorations ? false : self->bold);
   vttui_write(label, label_len);
-  vttui_write(" ", 1);
+  if (label_gap)
+    vttui_write(" ", 1);
 
   // Switch to input_bg for the text area
   vttui_sgr(self->fg, self->input_bg, false);
@@ -712,8 +717,8 @@ static mp_obj_t vttui_input_draw(mp_obj_t self_in) {
 
   // Park cursor at end of typed text
   int cursor_x = self->decorations
-                     ? self->abs_x + 2 + (int)label_len + 1 + visible
-                     : self->abs_x + (int)label_len + 1 + visible;
+                     ? self->abs_x + 2 + (int)label_len + label_gap + visible
+                     : self->abs_x + (int)label_len + label_gap + visible;
   vttui_move(cursor_x, content_row);
 
   return mp_const_none;
@@ -748,11 +753,24 @@ static mp_obj_t vttui_input_clear(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(vttui_input_clear_obj, vttui_input_clear);
 
+static mp_obj_t vttui_input_set(mp_obj_t self_in, mp_obj_t text_obj) {
+  vttui_input_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  size_t len;
+  const char *s = mp_obj_str_get_data(text_obj, &len);
+  if (len > VTTUI_INPUT_MAX)
+    len = VTTUI_INPUT_MAX;
+  memcpy(self->buf, s, len);
+  self->buf_len = (int)len;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(vttui_input_set_obj, vttui_input_set);
+
 static const mp_rom_map_elem_t vttui_input_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&vttui_input_draw_obj)},
     {MP_ROM_QSTR(MP_QSTR_push), MP_ROM_PTR(&vttui_input_push_obj)},
     {MP_ROM_QSTR(MP_QSTR_backspace), MP_ROM_PTR(&vttui_input_backspace_obj)},
     {MP_ROM_QSTR(MP_QSTR_clear), MP_ROM_PTR(&vttui_input_clear_obj)},
+    {MP_ROM_QSTR(MP_QSTR_set), MP_ROM_PTR(&vttui_input_set_obj)},
 };
 static MP_DEFINE_CONST_DICT(vttui_input_locals_dict,
                             vttui_input_locals_dict_table);
@@ -854,6 +872,84 @@ static void write_block_text(const char *text, int len, uint32_t fg,
     vttui_write(seg, (size_t)(end - seg));
 }
 
+// Replay ANSI escape sequences from [start, end) to restore color state,
+// mirroring write_block_text's handling of reset sequences.
+static void replay_ansi_state(const char *start, const char *end, uint32_t fg,
+                              uint32_t bg) {
+  const char *p = start;
+  while (p < end) {
+    if (p[0] == '\033' && p + 1 < end && p[1] == '[') {
+      if ((p + 3) < end && p[2] == '0' && p[3] == 'm') {
+        vttui_sgr(fg, bg, false);
+        p += 4;
+      } else if ((p + 2) < end && p[2] == 'm') {
+        vttui_sgr(fg, bg, false);
+        p += 3;
+      } else {
+        const char *seq = p;
+        p += 2;
+        while (p < end &&
+               ((unsigned char)*p < 0x40 || (unsigned char)*p > 0x7e))
+          p++;
+        if (p < end)
+          p++;
+        vttui_write(seq, (size_t)(p - seq));
+      }
+    } else {
+      p++;
+    }
+  }
+}
+
+// Returns the byte-length of the next display chunk containing up to `width`
+// visible characters.  ANSI escape sequences are skipped (not counted).
+// Multi-byte UTF-8 sequences count as one visible character.
+static int next_chunk_len(const char *s, int byte_len, int width) {
+  int vis = 0, i = 0;
+  while (i < byte_len) {
+    unsigned char c = (unsigned char)s[i];
+    if (c == '\033') {
+      i++;
+      if (i < byte_len && s[i] == '[') {
+        i++;
+        while (i < byte_len &&
+               ((unsigned char)s[i] < 0x40 || (unsigned char)s[i] > 0x7e))
+          i++;
+        if (i < byte_len)
+          i++;
+      }
+    } else if ((c & 0xC0) == 0x80) {
+      i++; // UTF-8 continuation byte — skip
+    } else {
+      vis++;
+      i++;
+      if ((c & 0xC0) == 0xC0) // multi-byte lead: skip continuations
+        while (i < byte_len && ((unsigned char)s[i] & 0xC0) == 0x80)
+          i++;
+      if (vis >= width)
+        break;
+    }
+  }
+  return i;
+}
+
+// Count how many display rows a single logical line occupies.
+static int line_display_rows(const char *s, int len, bool wrap, int width) {
+  if (!wrap || width <= 0 || len == 0)
+    return 1;
+  int rows = 0, remaining = len;
+  const char *pos = s;
+  while (remaining > 0) {
+    int cl = next_chunk_len(pos, remaining, width);
+    if (cl == 0)
+      break;
+    rows++;
+    pos += cl;
+    remaining -= cl;
+  }
+  return rows > 0 ? rows : 1;
+}
+
 static mp_obj_t vttui_block_draw(mp_obj_t self_in) {
   vttui_block_obj_t *self = MP_OBJ_TO_PTR(self_in);
   if (!self->dirty)
@@ -862,23 +958,93 @@ static mp_obj_t vttui_block_draw(mp_obj_t self_in) {
 
   size_t text_len;
   const char *text = mp_obj_str_get_data(self->text_obj, &text_len);
-
-  const char *line_start = text;
   const char *end = text + text_len;
-  int row = 0;
+
+  // Count total display rows for scroll offset
+  int skip_rows = 0;
+  if (self->scroll && self->height > 0) {
+    int total = 0;
+    const char *ls = text;
+    for (const char *p = text; p <= end; p++) {
+      if (p == end || *p == '\n') {
+        if (p == end && p == ls)
+          break; // skip trailing empty segment
+        total += line_display_rows(ls, (int)(p - ls), self->wrap, self->width);
+        ls = p + 1;
+      }
+    }
+    skip_rows = total - self->height;
+    if (skip_rows < 0)
+      skip_rows = 0;
+  }
+
+  // Render, skipping the first `skip_rows` display rows
+  int display_row = 0; // display rows consumed so far
+  int screen_row = 0;  // rows rendered to screen
+  const char *ls = text;
 
   for (const char *p = text; p <= end; p++) {
+    if (self->height > 0 && screen_row >= self->height)
+      break;
     if (p == end || *p == '\n') {
-      int line_len = (int)(p - line_start);
-      vttui_move(self->abs_x, self->abs_y + row);
+      int line_len = (int)(p - ls);
+      if (p == end && line_len == 0)
+        break; // skip trailing empty segment
+
+      if (self->wrap && self->width > 0) {
+        // Emit wrapped chunks
+        int remaining = line_len;
+        const char *pos = ls;
+        bool first_chunk = true;
+        while (first_chunk || remaining > 0) {
+          int cl =
+              remaining > 0 ? next_chunk_len(pos, remaining, self->width) : 0;
+          if (display_row >= skip_rows) {
+            if (self->height > 0 && screen_row >= self->height)
+              break;
+            vttui_move(self->abs_x, self->abs_y + screen_row);
+            vttui_sgr(self->fg, self->bg, false);
+            if (self->width > 0)
+              write_spaces(self->width);
+            vttui_move(self->abs_x, self->abs_y + screen_row);
+            vttui_sgr(self->fg, self->bg, false);
+            if (!first_chunk)
+              replay_ansi_state(ls, pos, self->fg, self->bg);
+            write_block_text(pos, cl, self->fg, self->bg);
+            screen_row++;
+          }
+          display_row++;
+          if (cl == 0)
+            break;
+          pos += cl;
+          remaining -= cl;
+          first_chunk = false;
+        }
+      } else {
+        if (display_row >= skip_rows) {
+          vttui_move(self->abs_x, self->abs_y + screen_row);
+          vttui_sgr(self->fg, self->bg, false);
+          if (self->width > 0)
+            write_spaces(self->width);
+          vttui_move(self->abs_x, self->abs_y + screen_row);
+          vttui_sgr(self->fg, self->bg, false);
+          write_block_text(ls, line_len, self->fg, self->bg);
+          screen_row++;
+        }
+        display_row++;
+      }
+
+      ls = p + 1;
+    }
+  }
+
+  // Fill remaining rows with background color
+  if (self->height > 0 && self->width > 0) {
+    while (screen_row < self->height) {
+      vttui_move(self->abs_x, self->abs_y + screen_row);
       vttui_sgr(self->fg, self->bg, false);
-      if (self->width > 0)
-        write_spaces(self->width);
-      vttui_move(self->abs_x, self->abs_y + row);
-      vttui_sgr(self->fg, self->bg, false);
-      write_block_text(line_start, line_len, self->fg, self->bg);
-      row++;
-      line_start = p + 1;
+      write_spaces(self->width);
+      screen_row++;
     }
   }
 
@@ -894,6 +1060,43 @@ static mp_obj_t vttui_block_set(mp_obj_t self_in, mp_obj_t text_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(vttui_block_set_obj, vttui_block_set);
 
+static mp_obj_t vttui_block_push(mp_obj_t self_in, mp_obj_t text_obj) {
+  vttui_block_obj_t *self = MP_OBJ_TO_PTR(self_in);
+
+  // Append new text
+  self->text_obj = mp_binary_op(MP_BINARY_OP_ADD, self->text_obj, text_obj);
+
+  // Trim to last `height` lines so memory stays bounded
+  if (self->scroll && self->height > 0) {
+    size_t len;
+    const char *text = mp_obj_str_get_data(self->text_obj, &len);
+    int nl_count = 0;
+    for (size_t i = 0; i < len; i++) {
+      if (text[i] == '\n')
+        nl_count++;
+    }
+    // If text ends with \n the trailing empty segment isn't a visible line
+    int visible_lines =
+        (len > 0 && text[len - 1] == '\n') ? nl_count : nl_count + 1;
+    int skip = visible_lines - self->height;
+    if (skip > 0) {
+      int skipped = 0;
+      for (size_t i = 0; i < len; i++) {
+        if (text[i] == '\n') {
+          if (++skipped >= skip) {
+            self->text_obj = mp_obj_new_str(text + i + 1, len - i - 1);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  self->dirty = true;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(vttui_block_push_obj, vttui_block_push);
+
 static mp_obj_t vttui_block_invalidate(mp_obj_t self_in) {
   ((vttui_block_obj_t *)MP_OBJ_TO_PTR(self_in))->dirty = true;
   return mp_const_none;
@@ -904,6 +1107,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(vttui_block_invalidate_obj,
 static const mp_rom_map_elem_t vttui_block_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&vttui_block_draw_obj)},
     {MP_ROM_QSTR(MP_QSTR_set), MP_ROM_PTR(&vttui_block_set_obj)},
+    {MP_ROM_QSTR(MP_QSTR_push), MP_ROM_PTR(&vttui_block_push_obj)},
     {MP_ROM_QSTR(MP_QSTR_invalidate), MP_ROM_PTR(&vttui_block_invalidate_obj)},
 };
 static MP_DEFINE_CONST_DICT(vttui_block_locals_dict,
@@ -919,10 +1123,14 @@ static const mp_arg_t make_block_args[] = {
     {MP_QSTR_fg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
     {MP_QSTR_bg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
     {MP_QSTR_width, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_height, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0}},
+    {MP_QSTR_scroll, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false}},
+    {MP_QSTR_wrap, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false}},
 };
 
 static vttui_block_obj_t *create_block(mp_arg_val_t *args, int abs_x, int abs_y,
-                                       uint32_t fg, uint32_t bg, int width) {
+                                       uint32_t fg, uint32_t bg, int width,
+                                       int height, bool scroll, bool wrap) {
   vttui_block_obj_t *blk = m_new_obj(vttui_block_obj_t);
   blk->base.type = &vttui_block_type;
   blk->abs_x = abs_x;
@@ -930,6 +1138,9 @@ static vttui_block_obj_t *create_block(mp_arg_val_t *args, int abs_x, int abs_y,
   blk->fg = fg;
   blk->bg = bg;
   blk->width = width > 0 ? width : 0;
+  blk->height = height > 0 ? height : 0;
+  blk->scroll = scroll;
+  blk->wrap = wrap;
   blk->text_obj = args[0].u_obj;
   blk->dirty = true;
   return blk;
@@ -1358,7 +1569,9 @@ static mp_obj_t vttui_window_make_block(size_t n_args, const mp_obj_t *pos_args,
   uint32_t bg = args[4].u_int >= 0 ? (uint32_t)args[4].u_int : self->bg;
   int avail = self->inner_w - args[1].u_int;
   int width = args[5].u_int > 0 ? args[5].u_int : (avail > 0 ? avail : 0);
-  return MP_OBJ_FROM_PTR(create_block(args, abs_x, abs_y, fg, bg, width));
+  return MP_OBJ_FROM_PTR(create_block(args, abs_x, abs_y, fg, bg, width,
+                                      args[6].u_int, args[7].u_bool,
+                                      args[8].u_bool));
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_window_make_block_obj, 3,
                                   vttui_window_make_block);
@@ -1521,8 +1734,9 @@ static mp_obj_t vttui_make_block(size_t n_args, const mp_obj_t *pos_args,
   uint32_t fg = args[3].u_int >= 0 ? (uint32_t)args[3].u_int : 257;
   uint32_t bg = args[4].u_int >= 0 ? (uint32_t)args[4].u_int : 256;
   int width = args[5].u_int;
-  return MP_OBJ_FROM_PTR(
-      create_block(args, args[1].u_int, args[2].u_int, fg, bg, width));
+  return MP_OBJ_FROM_PTR(create_block(args, args[1].u_int, args[2].u_int, fg,
+                                      bg, width, args[6].u_int, args[7].u_bool,
+                                      args[8].u_bool));
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(vttui_make_block_obj, 3, vttui_make_block);
 
