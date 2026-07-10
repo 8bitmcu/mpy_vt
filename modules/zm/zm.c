@@ -100,10 +100,18 @@ static MP_DEFINE_CONST_DICT(zm_locals_dict, zm_locals_dict_table);
 MP_DEFINE_CONST_OBJ_TYPE(zm_type, MP_QSTR_ZMachine, MP_TYPE_FLAG_NONE, make_new,
                          zm_make_new, locals_dict, &zm_locals_dict);
 
+static mp_obj_t zm_main(mp_obj_t env, mp_obj_t args) {
+  mp_obj_t ctor_args[2] = {env, args};
+  mp_obj_t m = zm_make_new(&zm_type, 2, 0, ctor_args);
+  return zm_run(m);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(zm_main_obj, zm_main);
+
 // Register the module
 static const mp_rom_map_elem_t zm_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_zm)},
     {MP_ROM_QSTR(MP_QSTR_ZMachine), MP_ROM_PTR(&zm_type)},
+    {MP_ROM_QSTR(MP_QSTR_main), MP_ROM_PTR(&zm_main_obj)},
 };
 static MP_DEFINE_CONST_DICT(zm_module_globals, zm_module_globals_table);
 

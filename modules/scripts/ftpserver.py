@@ -29,7 +29,11 @@ def resolve_path(cwd, arg):
     else:
         return (cwd + "/" + arg).replace("//", "/")
 
-def start(port=21, user="admin", password="admin"):
+def main(env, args):
+    port = int(args[0]) if len(args) > 0 else 21
+    user = args[1] if len(args) > 1 else "admin"
+    password = args[2] if len(args) > 2 else "admin"
+
     server_ip = get_ip()
     listen_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -30,7 +30,7 @@ def scan_for_networks():
 
     return menu_data
 
-def main(env):
+def main(env, *args):
     """ Creates a TUI for connecting or creating a Wi-Fi network"""
 
     tui = env.tui

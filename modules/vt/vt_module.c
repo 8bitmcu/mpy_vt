@@ -225,10 +225,29 @@ static const mp_rom_map_elem_t vtinal_locals_dict_table[] = {
 
 static MP_DEFINE_CONST_DICT(vt_VT_locals_dict, vtinal_locals_dict_table);
 
+static void vt_VT_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
+  if (dest[0] != MP_OBJ_NULL)
+    return;
+  if (attr == MP_QSTR_cols || attr == qstr_from_str("width")) {
+    dest[0] = MP_OBJ_NEW_SMALL_INT(term.col);
+    return;
+  }
+  if (attr == MP_QSTR_rows || attr == qstr_from_str("height")) {
+    dest[0] = MP_OBJ_NEW_SMALL_INT(term.row);
+    return;
+  }
+  mp_map_elem_t *elem = mp_map_lookup((mp_map_t *)&vt_VT_locals_dict.map,
+                                      MP_OBJ_NEW_QSTR(attr), MP_MAP_LOOKUP);
+  if (elem) {
+    dest[0] = elem->value;
+    dest[1] = self_in;
+  }
+}
+
 // Type Definition
 MP_DEFINE_CONST_OBJ_TYPE(vt_VT_type, MP_QSTR_VT, MP_TYPE_FLAG_NONE, make_new,
-                         vt_VT_make_new, protocol, &vt_stream_p, locals_dict,
-                         &vt_VT_locals_dict);
+                         vt_VT_make_new, protocol, &vt_stream_p, attr,
+                         vt_VT_attr, locals_dict, &vt_VT_locals_dict);
 
 //  Module Definition
 

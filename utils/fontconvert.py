@@ -11,6 +11,8 @@ UNICODE_SYM = ''.join(chr(c) for c in (0x2500, 0x2502, 0x250c, 0x2510, 0x2514, 0
 
 
 def encode_chars(characters, font, char_width, char_height, y_offset, bpp, sample_p, remap, palette):
+    wide = (char_width * bpp + 7) // 8  # bytes per row (matches decoder's wide)
+    row_stride = wide * 8               # bits per row after padding
     bitstring = ''
     for char in characters:
         char_im = Image.new('L', (char_width, char_height), 0)
@@ -19,12 +21,14 @@ def encode_chars(characters, font, char_width, char_height, y_offset, bpp, sampl
         char_im = char_im.point(remap)
         char_im.putpalette(palette)
         for y in range(char_im.height):
+            row_bits = ''
             for x in range(char_im.width):
                 color = char_im.getpixel((x, y))
-                bitstring += ''.join(
+                row_bits += ''.join(
                     '1' if (color & (1 << bit - 1)) else '0'
                     for bit in range(bpp, 0, -1)
                 )
+            bitstring += row_bits + '0' * (row_stride - len(row_bits))
     return bitstring
 
 

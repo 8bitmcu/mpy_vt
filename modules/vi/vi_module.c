@@ -103,10 +103,18 @@ static MP_DEFINE_CONST_DICT(vi_vi_locals_dict, vi_vi_locals_dict_table);
 MP_DEFINE_CONST_OBJ_TYPE(vi_type_Vi, MP_QSTR_Vi, MP_TYPE_FLAG_NONE, make_new,
                          vi_vi_make_new, locals_dict, &vi_vi_locals_dict);
 
+static mp_obj_t _vi_main(mp_obj_t env, mp_obj_t args) {
+  mp_obj_t ctor_args[2] = {env, args};
+  vi_vi_make_new(&vi_type_Vi, 2, 0, ctor_args);
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(vi_main_obj, _vi_main);
+
 // Define the Module-level globals
 static const mp_rom_map_elem_t vi_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_vi)},
     {MP_ROM_QSTR(MP_QSTR_Vi), MP_ROM_PTR(&vi_type_Vi)},
+    {MP_ROM_QSTR(MP_QSTR_main), MP_ROM_PTR(&vi_main_obj)},
 };
 static MP_DEFINE_CONST_DICT(vi_module_globals, vi_module_globals_table);
 

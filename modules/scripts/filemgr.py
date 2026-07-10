@@ -61,7 +61,7 @@ def show_error(win, tui, msg):
         if char in ('\r', '\n'):
             break
 
-def main(env):
+def main(env, *args):
     """ Creates a TUI for browsing and manipulating files """
 
     tui = env.tui

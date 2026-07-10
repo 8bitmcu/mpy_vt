@@ -1602,9 +1602,21 @@ static const mp_rom_map_elem_t vttui_locals_dict_table[] = {
 static MP_DEFINE_CONST_DICT(vttui_locals_dict, vttui_locals_dict_table);
 
 static void vttui_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
+  vttui_vttui_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  if (dest[0] == MP_OBJ_SENTINEL) {
+    // Store
+    if (attr == MP_QSTR_width || attr == MP_QSTR_cols) {
+      self->width = (uint16_t)mp_obj_get_int(dest[1]);
+      dest[0] = MP_OBJ_NULL;
+    } else if (attr == MP_QSTR_height || attr == MP_QSTR_rows) {
+      self->height = (uint16_t)mp_obj_get_int(dest[1]);
+      dest[0] = MP_OBJ_NULL;
+    }
+    return;
+  }
   if (dest[0] != MP_OBJ_NULL)
     return;
-  vttui_vttui_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  // Load
   if (attr == MP_QSTR_width || attr == MP_QSTR_cols) {
     dest[0] = MP_OBJ_NEW_SMALL_INT(self->width);
     return;

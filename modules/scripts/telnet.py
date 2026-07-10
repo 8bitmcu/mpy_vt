@@ -18,6 +18,8 @@ OPT_NAWS = 31  # Negotiate About Window Size
 
 class TelnetClient:
     def __init__(self, env, *args):
+        if len(args) == 1 and not isinstance(args[0], str):
+            args = tuple(args[0])  # unpack tuple/list passed as single arg
         if not args:
             raise ValueError("Usage: telnet <host> [port]")
 
@@ -200,3 +202,7 @@ class TelnetClient:
             self.connected = False
             self.socket.close()
             self.env.write("\nDisconnected.\n")
+
+def main(env, args):
+    client = TelnetClient(env, args)
+    client.run()
