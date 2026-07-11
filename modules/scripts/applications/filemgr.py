@@ -76,7 +76,7 @@ def main(env, *args):
 
     win = tui.make_window(
             0, 0,
-            width=tui.width, height=tui.height,
+            width=env.cols, height=env.rows,
             title="FILE MANAGER",
             fg=252, bg=18)
 
@@ -112,7 +112,7 @@ def main(env, *args):
 
             lst = win.make_list(display_items,
                                 x=0, y=1,
-                                width=tui.width, height=win.inner_h-2,
+                                width=env.cols, height=win.inner_h-2,
                                 fg=252, bg=18,
                                 arrow=">", left_pad=1)
 

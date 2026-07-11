@@ -1,5 +1,3 @@
-import terminus_mpy_regular as rfont
-import terminus_mpy_bold as bfont
 import machine
 import micropython
 import vt
@@ -13,20 +11,6 @@ import st7789
 import time
 import statusbar
 import shell
-import apps
-
-
-# Screen dimensions in pixel
-screen_width = 320
-screen_height = 240
-
-# Reserve 1 row for a topbar
-status_height = rfont.HEIGHT
-
-# How many characters can we fit on the screen?
-cols = screen_width // rfont.WIDTH
-usable_height = screen_height - status_height
-rows = usable_height // rfont.HEIGHT
 
 # Must be called before initializing LCD / Keyboard
 machine.Pin(10, machine.Pin.OUT, value=1)
@@ -58,21 +42,59 @@ spi = machine.SPI(1, baudrate=40000000, sck=machine.Pin(40), mosi=machine.Pin(41
 if sd is not None:
     sd.spi = spi
 
+class Environment:
+    def __init__(self, font):
+        # Screen dimensions in pixel
+        self.screen_width = 320
+        self.screen_height = 240
+        self.status_height = 0
+        self.cols = 0
+        self.rows = 0
+        self.font = None
+        self.font_name = ""
+        self.kvm = None
+        self.tui = None
+        self.term = None
+        self.sts = None
+        self.shell = None
+        self.update_font(font)
+
+    def update_font(self, font_name):
+        new_font = __import__(f"fonts.{font_name}", None, None, [font_name])
+        self.font_name = font_name
+        self.font = new_font
+
+        # Reserve 1 row for a topbar
+        self.status_height = self.font.HEIGHT
+
+        # How many characters can we fit on the screen?
+        self.cols = self.screen_width // self.font.WIDTH
+        usable_height = self.screen_height - self.status_height
+        self.rows = usable_height // self.font.HEIGHT
+
+
+        if self.term:
+            self.term.update_layout(self.font, self.cols, self.rows)
+            self.term.top_offset(self.status_height)
+            env.sts.update_width(self.cols)
+
+env = Environment("terminus_mpy_14")
+
 # Initialze LCD
 tft = st7789.ST7789(spi,
-                    screen_height,
-                    screen_width,
+                    env.screen_height,
+                    env.screen_width,
                     reset=machine.Pin(1, machine.Pin.OUT),
                     dc=machine.Pin(11, machine.Pin.OUT),
                     cs=machine.Pin(12, machine.Pin.OUT),
                     backlight=machine.Pin(42, machine.Pin.OUT),
                     rotation=1,
-                    buffer_size=screen_width*rfont.HEIGHT*2)
+                    buffer_size=env.screen_width*env.font.HEIGHT*2)
 tft.init()
 
 # Initialize ST engine
-term = vt.VT(tft, cols, rows, rfont, bfont)
-term.top_offset(status_height)
+env.term = vt.VT(tft, env)
+env.term.top_offset(env.status_height)
 
 # Initialize keyboard
 kbd = tdeck_kbd.Keyboard(sda=18, scl=8)
@@ -81,14 +103,14 @@ kbd = tdeck_kbd.Keyboard(sda=18, scl=8)
 tdeck_trk.init()
 
 # Combine ST & keyboard into one stream object
-kvm = tdeck_kvm.KVM(term , kbd)
+env.kvm = tdeck_kvm.KVM(env.term, kbd)
 
 # Redirect to REPL
-os.dupterm(kvm)
+os.dupterm(env.kvm)
 
 # Status bar component
-sts = statusbar.StatusBar(term, width=cols)
-sts.refresh()
+env.sts = statusbar.StatusBar(env.term, width=env.cols)
+env.sts.refresh()
 
 # The FAST loop (30ms)
 def scheduled_fast(_):
@@ -97,25 +119,25 @@ def scheduled_fast(_):
     h_delta = tdeck_trk.get_scroll_horiz()
     if abs(h_delta) > 1:
         if h_delta < 0:
-            kvm.inject("\x1b[A") # Injects 'Up' key into REPL
+            env.kvm.inject("\x1b[A") # Injects 'Up' key into REPL
         else:
-            kvm.inject("\x1b[B") # Injects 'Down' key into REPL
+            env.kvm.inject("\x1b[B") # Injects 'Down' key into REPL
 
     # Trackball vertical movement translates into showing history
     # Default history is 100 lines defined as HISTSIZE in st.h
     v_delta = tdeck_trk.get_scroll_vert()
     if abs(v_delta) > 1:
         if v_delta < 0:
-            term.scrolldown()
+            env.term.scrolldown()
         else:
-            term.scrollup()
+            env.term.scrollup()
 
     # Long clicking will raise KeyboardInterrupt (internally to tdeck_trk)
     # Short click will inject escape
     if tdeck_trk.get_click():
-        kvm.inject("\x1b")
+        env.kvm.inject("\x1b")
 
-    term.draw()
+    env.term.draw()
 
 def fast_loop(_):
     # Use schedule to keep the ISR (Interrupt Service Routine) light
@@ -123,7 +145,7 @@ def fast_loop(_):
 
 # The SLOW loop (1000ms)
 def scheduled_slow(_):
-    sts.refresh()
+    env.sts.refresh()
 
 def slow_loop(_):
     # Update the status bar string (ANSI parsing happens here)
@@ -148,9 +170,8 @@ sys.stdout.write("\x1b[ 6 q")
 #sys.stdout.write("\x1b[ 2 q")
 
 # "REPL" into a custom, simple shell
-kvm.shell = shell.Shell(kvm)
-apps.register_apps(kvm.shell)
-kvm.shell.run()
+env.shell = shell.Shell(env)
+env.shell.run()
 
 class Cmd:
     def __init__(self, func):
@@ -161,5 +182,5 @@ class Cmd:
 
 # quick way to return to the shell from MicroPython
 # just type `sh` into MicroPython to return to our shell
-sh = Cmd(kvm.shell.run)
+sh = Cmd(env.shell.run)
 

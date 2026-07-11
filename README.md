@@ -58,6 +58,7 @@ You can execute the following commands from the built-in shell:
 | `nm` | Starts the TUI Network Manager |
 | `fm` | Starts the TUI File Manager |
 | `vi` | Opens the vi port |
+| `fc` | Font Configuration Utility |
 | `clear` | Clears the screen |
 | `irc` | Connects to an IRC channel given a server, port, nickname and channel |
 | `telnet` | Connects to a telnet server (try `telehack.com` or `bbs.retrocampus.com`) |
@@ -351,3 +352,6 @@ This project's source code is licensed under the **MIT License**. However, if yo
 
 ### Fonts & Assets:
 * **Terminus Font:** (c) 2020 Dimitar Zhekov. Licensed under the [SIL Open Font License 1.1](https://scripts.sil.org/OFL).
+* **Cozette Font:** Copyright (c) 2020 Samhain <samhain@moonwit.ch> & contributors <https://github.com/the-moonwitch/Cozette/contributors>. Distributed under the terms of the MIT License.
+* **Tamzen Font:** Copyright 2011 Suraj N. Kurapati <https://github.com/sunaku/tamzen-font>. Tamzen font is free. You are hereby granted permission to use, copy, modify, and distribute it as you see fit. Tamzen font is provided "as is" without any express or implied warranty. The author makes no representations about the suitability of this font for a particular purpose. In no event will the author be held liable for damages arising from the use of this font.
+* **Gohu Font:** Copyright 2015 by Hugo Chargois. Distributed under the terms of the [WTFPL version 2](https://www.wtfpl.net/about/).

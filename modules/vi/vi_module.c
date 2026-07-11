@@ -18,32 +18,38 @@ static mp_obj_t vi_vi_make_new(const mp_obj_type_t *type, size_t n_args,
   vi_vi_obj_t *self = m_new_obj(vi_vi_obj_t);
   self->base.type = type;
 
-  // 1. Handle Stream / Environment (args[0])
-  self->stream_obj = args[0];
+  // 1. Handle Environment (args[0])
+  mp_obj_t env_obj = args[0];
+  mp_obj_t dest_stream[2];
+
+  // Extract the actual underlying stream object ('kvm') from env
+  mp_load_method_maybe(env_obj, qstr_from_str("kvm"), dest_stream);
+  if (dest_stream[0] != MP_OBJ_NULL) {
+    self->stream_obj = dest_stream[0];
+  }
+
+  // Safely query the stream protocol on the extracted stream object
   self->stream_p = mp_get_stream_raise(self->stream_obj,
                                        MP_STREAM_OP_READ | MP_STREAM_OP_WRITE);
 
-  // 2. Safe Dimension Lookup from env (with defaults)
   int tw = 40, th = 16;
   mp_obj_t dest[2];
 
-  // Lookup Width/Cols
-  mp_load_method_maybe(self->stream_obj, MP_QSTR_cols, dest);
+  mp_load_method_maybe(env_obj, MP_QSTR_cols, dest);
   if (dest[0] != MP_OBJ_NULL) {
     tw = mp_obj_get_int(dest[0]);
   } else {
-    mp_load_method_maybe(self->stream_obj, qstr_from_str("width"), dest);
+    mp_load_method_maybe(env_obj, qstr_from_str("cols"), dest);
     if (dest[0] != MP_OBJ_NULL) {
       tw = mp_obj_get_int(dest[0]);
     }
   }
 
-  // Lookup Height/Rows
-  mp_load_method_maybe(self->stream_obj, MP_QSTR_rows, dest);
+  mp_load_method_maybe(env_obj, MP_QSTR_rows, dest);
   if (dest[0] != MP_OBJ_NULL) {
     th = mp_obj_get_int(dest[0]);
   } else {
-    mp_load_method_maybe(self->stream_obj, qstr_from_str("height"), dest);
+    mp_load_method_maybe(env_obj, qstr_from_str("rows"), dest);
     if (dest[0] != MP_OBJ_NULL) {
       th = mp_obj_get_int(dest[0]);
     }
@@ -52,7 +58,6 @@ static mp_obj_t vi_vi_make_new(const mp_obj_type_t *type, size_t n_args,
   self->width = tw;
   self->height = th;
 
-  // 3. Handle Shell Arguments Array (args[1])
   size_t shell_argc = 0;
   mp_obj_t *shell_argv;
   mp_obj_get_array(args[1], &shell_argc, &shell_argv);

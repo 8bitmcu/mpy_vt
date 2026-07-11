@@ -177,9 +177,12 @@ static const mp_stream_p_t vt_stream_p = {
 //  Class Definition ---
 
 // Constructor: vt.VT()
+// Constructor: vt.VT(tft, env)
 static mp_obj_t vt_VT_make_new(const mp_obj_type_t *type, size_t n_args,
                                size_t n_kw, const mp_obj_t *args) {
-  mp_arg_check_num(n_args, n_kw, 4, 5, false);
+  // Expect exactly 2 positional arguments: display driver and environment
+  // object
+  mp_arg_check_num(n_args, n_kw, 2, 2, false);
 
   vt_VT_obj_t *self = m_new_obj(vt_VT_obj_t);
   self->base.type = &vt_VT_type;
@@ -189,16 +192,19 @@ static mp_obj_t vt_VT_make_new(const mp_obj_type_t *type, size_t n_args,
   }
   self->display_drv = (st7789_ST7789_obj_t *)MP_OBJ_TO_PTR(args[0]);
 
-  int cols = mp_obj_get_int(args[1]);
-  int rows = mp_obj_get_int(args[2]);
+  // Extract the Python 'env' object passed as Arg 2
+  mp_obj_t env_obj = args[1];
 
-  self->font_regular = (mp_obj_module_t *)MP_OBJ_TO_PTR(args[3]);
-  if (n_args > 4) {
-    self->font_bold = (mp_obj_module_t *)MP_OBJ_TO_PTR(args[4]);
-  } else {
-    self->font_bold = self->font_regular;
-  }
+  mp_obj_t cols_obj = mp_load_attr(env_obj, MP_QSTR_cols);
+  int cols = mp_obj_get_int(cols_obj);
 
+  mp_obj_t rows_obj = mp_load_attr(env_obj, MP_QSTR_rows);
+  int rows = mp_obj_get_int(rows_obj);
+
+  mp_obj_t font_obj = mp_load_attr(env_obj, MP_QSTR_font);
+  self->font = (mp_obj_module_t *)MP_OBJ_TO_PTR(font_obj);
+
+  // Initialize the terminal grid engine with the extracted dimensions
   tnew(cols, rows);
 
   current_vt_obj = self;
@@ -206,9 +212,29 @@ static mp_obj_t vt_VT_make_new(const mp_obj_type_t *type, size_t n_args,
   return MP_OBJ_FROM_PTR(self);
 }
 
+static mp_obj_t vt_VT_update_layout(size_t n_args, const mp_obj_t *args) {
+  // args[0] is 'self'
+  vt_VT_obj_t *self = MP_OBJ_TO_PTR(args[0]);
+
+  mp_obj_t font_obj = args[1];
+  self->font = (mp_obj_module_t *)MP_OBJ_TO_PTR(font_obj);
+
+  int cols = mp_obj_get_int(args[2]);
+  int rows = mp_obj_get_int(args[3]);
+
+  tresize(cols, rows);
+
+  return mp_const_none;
+}
+// Defines a variable-argument function requiring exactly 4 arguments (self + 3
+// inputs)
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(vt_VT_update_layout_obj, 4, 4,
+                                    vt_VT_update_layout);
+
 // Locals Dict (Methods attached to the object)
 // Even if empty, it's good practice to define it to avoid segfaults on dir(obj)
 static const mp_rom_map_elem_t vtinal_locals_dict_table[] = {
+    {MP_ROM_QSTR(MP_QSTR_update_layout), MP_ROM_PTR(&vt_VT_update_layout_obj)},
     {MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&vt_VT_write_obj)},
     {MP_ROM_QSTR(MP_QSTR_draw), MP_ROM_PTR(&vt_VT_draw_obj)},
     {MP_ROM_QSTR(MP_QSTR_scrollup), MP_ROM_PTR(&vt_VT_scrollup_obj)},

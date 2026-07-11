@@ -47,7 +47,7 @@ def main(env, *args):
 
     win = tui.make_window(
             0, 0,
-            width=tui.width, height=tui.height,
+            width=env.cols, height=env.rows,
             title="NETWORK MANAGER",
             fg=252, bg=18)
 
@@ -141,7 +141,7 @@ def main(env, *args):
                         labels,
                         title="Select a Network:",
                         x=0, y=2,
-                        width=tui.width-10, height=win.inner_h-6,
+                        width=env.cols-10, height=win.inner_h-6,
                         fg=252, bg=18,
                         arrow=">", left_pad=1,
                         align="center")

@@ -23,8 +23,16 @@ static mp_obj_t zm_make_new(const mp_obj_type_t *type, size_t n_args,
   zm_zm_obj_t *self = m_new_obj(zm_zm_obj_t);
   self->base.type = type;
 
-  // Handle Stream (e.g., KVM object)
-  self->stream_obj = args[0];
+  // Handle Stream / Environment (args[0])
+  mp_obj_t env_obj = args[0];
+  mp_obj_t dest_stream[2];
+
+  // Extract the actual underlying stream object ('kvm') from env
+  mp_load_method_maybe(env_obj, qstr_from_str("kvm"), dest_stream);
+  if (dest_stream[0] != MP_OBJ_NULL) {
+    self->stream_obj = dest_stream[0];
+  }
+  // Safely query the stream protocol on the extracted stream object
   self->stream_p = mp_get_stream_raise(self->stream_obj,
                                        MP_STREAM_OP_READ | MP_STREAM_OP_WRITE);
 

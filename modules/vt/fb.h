@@ -17,8 +17,7 @@
 typedef struct _vt_VT_obj_t {
   mp_obj_base_t base;
   st7789_ST7789_obj_t *display_drv;
-  mp_obj_module_t *font_regular;
-  mp_obj_module_t *font_bold;
+  mp_obj_module_t *font;
 } vt_VT_obj_t;
 
 // Allocate a persistent line for the status bar

@@ -109,7 +109,7 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
   st7789_ST7789_obj_t *display = vt->display_drv;
 
   // 1. Setup Metrics
-  mp_obj_dict_t *dict = MP_OBJ_TO_PTR(vt->font_regular->globals);
+  mp_obj_dict_t *dict = MP_OBJ_TO_PTR(vt->font->globals);
   const uint8_t f_width =
       mp_obj_get_int(mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_WIDTH)));
   const uint8_t f_height =
@@ -125,20 +125,27 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
   if (_y1 == -1) {
     y_start = 0; // Top Bar
   } else if (_y1 == -2) {
-    // Bottom Bar: Total Height - Font Height
-    y_start = display->height - f_height;
+    y_start = display->height - f_height; // Bottom Bar
   } else {
     y_start = (_y1 * f_height) + term.top_offset; // Terminal rows
   }
   uint16_t num_cols = _x2 - _x1;
 
-  // TODO if no buffer
   if (display->i2c_buffer) {
     uint32_t buf_idx = 0;
     uint16_t x_end = (x_start + (num_cols * f_width)) - 1;
 
+    // DYNAMIC RIGHT MARGIN: If drawing the last column, stretch window to
+    // screen edge
+    if (_x2 == term.col && x_end < display->width - 1) {
+      x_end = display->width - 1;
+    }
+
     if (x_end < display->width) {
       set_window(display, x_start, y_start, x_end, y_start + f_height - 1);
+
+      uint16_t window_width = x_end - x_start + 1;
+      uint16_t text_rendered_width = num_cols * f_width;
 
       // Caches
       uint16_t fg_cache[num_cols];
@@ -146,26 +153,24 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
       const uint8_t *font_ptr_cache[num_cols];
 
       mp_buffer_info_t reg_buf, bold_buf;
-      mp_get_buffer_raise(
-          mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font_regular->globals),
-                          MP_OBJ_NEW_QSTR(MP_QSTR_FONT)),
-          &reg_buf, MP_BUFFER_READ);
-      mp_get_buffer_raise(mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font_bold->globals),
-                                          MP_OBJ_NEW_QSTR(MP_QSTR_FONT)),
+      mp_get_buffer_raise(mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font->globals),
+                                          MP_OBJ_NEW_QSTR(MP_QSTR_REGULAR)),
+                          &reg_buf, MP_BUFFER_READ);
+      mp_get_buffer_raise(mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font->globals),
+                                          MP_OBJ_NEW_QSTR(MP_QSTR_BOLD)),
                           &bold_buf, MP_BUFFER_READ);
 
-      // Box drawing font (optional — only present if font was converted with
-      // -b)
+      // Unicode font handling
       mp_buffer_info_t box_buf = {0};
       uint32_t box_codepoints[32];
       size_t box_count = 0;
       mp_obj_t box_font_obj =
-          mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font_regular->globals),
+          mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font->globals),
                           MP_OBJ_NEW_QSTR(qstr_from_str("UNICODE_FONT")));
       if (box_font_obj != MP_OBJ_NULL && box_font_obj != mp_const_none) {
         mp_get_buffer_raise(box_font_obj, &box_buf, MP_BUFFER_READ);
         mp_obj_t chars_obj =
-            mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font_regular->globals),
+            mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font->globals),
                             MP_OBJ_NEW_QSTR(qstr_from_str("UNICODE_CHARS")));
         if (chars_obj != MP_OBJ_NULL && chars_obj != mp_const_none) {
           box_count = (size_t)mp_obj_get_int(mp_obj_len(chars_obj));
@@ -177,11 +182,10 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
         }
       }
 
-      // caching
+      // Populate caching
       for (uint16_t i = 0; i < num_cols; i++) {
         int col_idx = _x1 + i;
 
-        // Color & Invert
         uint16_t fg = map_st_color(ln[col_idx].fg);
         uint16_t bg = map_st_color(ln[col_idx].bg);
         if (ln[col_idx].mode & ATTR_REVERSE) {
@@ -192,7 +196,6 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
           bg_cache[i] = bg;
         }
 
-        // Font & Offset
         uint32_t char_val = ln[col_idx].u;
         if (char_val >= first && char_val <= last) {
           uint32_t offset = (char_val - first) * (f_height * wide);
@@ -215,18 +218,15 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
       }
 
       // Cursor Stats
-      uint16_t cursor_fg = 0xFFFF; // White or custom cursor color
+      uint16_t cursor_fg = 0xFFFF;
       int cur_x = term.c.x;
       int cur_y = term.c.y;
       bool show_cursor = !(wmode & MODE_HIDE);
-
-      // Get current style from terminal state (Default to 6 if not set)
-      // 0,1,2 = Block | 3,4 = Underline | 5,6 = Beam
       int style = term.cursor_style;
 
-      // rendering loop
+      // Rendering loop
       for (uint8_t line_y = 0; line_y < f_height; line_y++) {
-        bool is_last_row = (line_y >= f_height - 2); // 2-pixel thick underline
+        bool is_last_row = (line_y >= f_height - 2);
 
         for (uint16_t i = 0; i < num_cols; i++) {
           const uint8_t *char_row_data = font_ptr_cache[i];
@@ -242,35 +242,29 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
               for (uint8_t b = 0; b < 8; b++) {
                 uint8_t pixel_col = (b_idx * 8) + b;
                 if (pixel_col >= f_width)
-                  break; // Font width safety
+                  break;
 
                 uint16_t final_color =
                     (bits & 0x80) ? bg_cache[i] : fg_cache[i];
 
-                // --- CURSOR OVERLAY LOGIC ---
                 if (is_cursor_cell) {
                   switch (style) {
                   case 0:
                   case 1:
-                  case 2: // BLOCK
-                    // Cursor Color
+                  case 2:
                     final_color = ~final_color;
                     break;
                   case 3:
-                  case 4: // UNDERLINE
+                  case 4:
                     if (is_last_row)
                       final_color = cursor_fg;
                     break;
-                  case 5:
-                  case 6: // BEAM (Vertical Bar)
                   default:
                     if (pixel_col < 2)
                       final_color = cursor_fg;
                     break;
                   }
-                }
-                // --- ATTR_UNDERLINE LOGIC (Normal text) ---
-                else if (has_underline && is_last_row) {
+                } else if (has_underline && is_last_row) {
                   final_color = fg_cache[i];
                 }
 
@@ -279,7 +273,6 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
               }
             }
           } else {
-            // Handle Empty Space Cursor
             for (uint8_t p = 0; p < f_width; p++) {
               uint16_t final_color = bg_cache[i];
               if (is_cursor_cell) {
@@ -294,9 +287,24 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
             }
           }
         }
+
+        // Pad out the right margin for this row inside the active window
+        if (window_width > text_rendered_width) {
+          uint16_t pad_bg = map_st_color(defaultbg);
+          if (num_cols > 0) {
+            pad_bg = map_st_color(ln[_x1 + num_cols - 1].bg);
+            if (ln[_x1 + num_cols - 1].mode & ATTR_REVERSE) {
+              pad_bg = map_st_color(ln[_x1 + num_cols - 1].fg);
+            }
+          }
+          uint16_t pad_pixels = window_width - text_rendered_width;
+          for (uint16_t p = 0; p < pad_pixels; p++) {
+            display->i2c_buffer[buf_idx++] = pad_bg;
+          }
+        }
       }
 
-      // SPI Burst
+      // SPI Burst for the core row line
       mp_hal_pin_write(display->dc, 1);
       mp_hal_pin_write(display->cs, 0);
       write_spi(display->spi_obj, (uint8_t *)display->i2c_buffer, buf_idx * 2);

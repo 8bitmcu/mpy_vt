@@ -147,13 +147,13 @@ def main(env, args):
     env.tui.cursor_hide()
 
     chat_win = env.tui.make_block("", 0, 0,
-          width=env.tui.width, height=env.tui.height-1,
+          width=env.cols, height=env.rows-1,
           fg=252, bg=18,
           scroll=True, wrap=True)
 
     chat_input = env.tui.make_input("",
-        0, env.tui.height-1,
-        width=env.tui.width,
+        0, env.rows-1,
+        width=env.cols,
         fg=252, bg=0, input_bg=0,
         decorations=False)
 

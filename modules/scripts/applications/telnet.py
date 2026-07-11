@@ -103,13 +103,13 @@ class TelnetClient:
                     if IAC in data:
                         self._process_complex_data(data)
                     else:
-                        self.env.write(data)
+                        self.env.kvm.write(data)
 
             except OSError:
                 pass
 
             buf = bytearray(1)
-            if self.env.readinto(buf):
+            if self.env.kvm.readinto(buf):
                 char_byte = buf[0]
                 if char_byte == 13:
                     self.socket.send(b'\r\n')
@@ -162,7 +162,7 @@ class TelnetClient:
                     i += 1
 
         if clean_data:
-            self.env.write(clean_data)
+            self.env.kvm.write(clean_data)
 
 
     def _handle_negotiation(self, command, option):
@@ -201,7 +201,7 @@ class TelnetClient:
         if self.connected:
             self.connected = False
             self.socket.close()
-            self.env.write("\nDisconnected.\n")
+            self.env.kvm.write("\nDisconnected.\n")
 
 def main(env, args):
     client = TelnetClient(env, args)

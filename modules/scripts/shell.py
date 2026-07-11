@@ -1,5 +1,19 @@
 import sys
 
+def _ensure_tui(env):
+    if not hasattr(env, 'tui') or env.tui is None:
+        import vttui
+        env.tui = vttui.VTTUI(env, env.cols, env.rows)
+
+def _app(module, tui=False):
+    def _run(env, *args):
+        if tui:
+            _ensure_tui(env)
+        app_module = __import__(module, None, None, [''])
+        app_module.main(env, args)
+    return _run
+
+
 def _parse_args(line):
     """Split a command line respecting single and double quoted strings."""
     parts = []
@@ -45,6 +59,15 @@ class Shell:
         self.running = True
         self._history = []
 
+        self.register("ftps",        _app("applications.ftpserver"))
+        self.register("telnet",      _app("applications.telnet"))
+        self.register("nm",          _app("applications.netmgr",     tui=True))
+        self.register("fm",          _app("applications.filemgr",    tui=True))
+        self.register("irc",         _app("applications.irc",        tui=True))
+        self.register("fc",          _app("applications.fontconfig", tui=True))
+        self.register("vi",          _app("vi"))
+        self.register("zm",          _app("zm"))
+
     def register(self, name, func):
         self.apps[name] = Command(func, self.env)
 
@@ -71,7 +94,7 @@ class Shell:
                 # Ctrl-A: mpremote raw REPL request. Re-inject the byte so
                 # the MicroPython C REPL loop sees it after the shell exits,
                 # then exit so it can handle the raw REPL handshake.
-                self.env.inject('\x01')
+                self.env.kvm.inject('\x01')
                 raise EOFError
 
             if char == '\x1b':
