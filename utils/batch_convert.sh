@@ -2,6 +2,7 @@
 
 rm ../modules/scripts/fonts/*
 
+touch ../modules/scripts/fonts/__init__.py
 
 # Terminus
 TERMINUS_LICENSE_HEADER='"""

@@ -60,9 +60,8 @@ class Environment:
         self.update_font(font)
 
     def update_font(self, font_name):
-        new_font = __import__(f"fonts.{font_name}", None, None, [font_name])
+        self.font = __import__(f"fonts.{font_name}", None, None, [font_name])
         self.font_name = font_name
-        self.font = new_font
 
         # Reserve 1 row for a topbar
         self.status_height = self.font.HEIGHT
@@ -71,7 +70,6 @@ class Environment:
         self.cols = self.screen_width // self.font.WIDTH
         usable_height = self.screen_height - self.status_height
         self.rows = usable_height // self.font.HEIGHT
-
 
         if self.term:
             self.term.update_layout(self.font, self.cols, self.rows)

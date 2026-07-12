@@ -27,7 +27,6 @@ def main(env, *args):
     CYAN = "\x1b[38;5;45m"
 
     while True:
-        current_font = env.font_name
         win = tui.make_window(
                 0, 0,
                 width=env.cols, height=env.rows,
@@ -36,7 +35,7 @@ def main(env, *args):
 
         if ui_state == "MAIN_MENU":
 
-            blk = win.make_block(f"{BOLD}current font: {CLR}{CYAN}{current_font}{CLR}\n",
+            blk = win.make_block(f"{BOLD}current font: {CLR}{CYAN}{env.font_name}{CLR}\n",
                                  1, 0,
                                  fg=252, bg=18)
 

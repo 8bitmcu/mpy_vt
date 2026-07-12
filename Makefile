@@ -85,13 +85,11 @@ sync_file:
 		mpremote connect $(PORT) cp /opt/all_modules/scripts/$(FILE) :$(FILE)
 
 clean:
-	docker run --rm -v $(MPY_VOLUME):/opt/micropython $(MP_REMOTE) \
-		/bin/bash -c "make -C /opt/micropython/mpy-cross clean"
-
-	docker run --rm -v $(MPY_VOLUME):/opt/micropython $(MP_REMOTE) \
-		/bin/bash -c "rm -rf /opt/micropython/ports/esp32/build-* && \
+	@echo "Cleaning mpy-cross, ESP32 build cache, and local output..."
+	docker run --rm -v $(MPY_VOLUME):/opt/micropython $(IDF_IMAGE) \
+		/bin/bash -c "make -C /opt/micropython/mpy-cross clean && \
+			rm -rf /opt/micropython/ports/esp32/build-* && \
 			rm -rf /opt/micropython/ports/esp32/boards/$(BOARD)"
-
 	rm -rf $(BUILD_DIR)/*
 
 repl:

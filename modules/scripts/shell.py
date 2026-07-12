@@ -59,7 +59,7 @@ class Shell:
         self.running = True
         self._history = []
 
-        self.register("ftps",        _app("applications.ftpserver"))
+        self.register("ftpd",        _app("applications.ftpd"))
         self.register("telnet",      _app("applications.telnet"))
         self.register("nm",          _app("applications.netmgr",     tui=True))
         self.register("fm",          _app("applications.filemgr",    tui=True))
@@ -141,7 +141,7 @@ class Shell:
         ver = sys.implementation.version
         version_str = f"{ver[0]}.{ver[1]}.{ver[2]}"
         # TODO: move versioning to makefile
-        print(f"MPY_VT v0.1.6; MicroPython v{version_str}\nType 'help' to see commands.")
+        print(f"MPY_VT v0.1.7; MicroPython v{version_str}\nType 'help' to see commands.")
 
         while self.running:
             try:
@@ -163,7 +163,7 @@ class Shell:
                 print("\033[2J\033[H", end="")
                 continue
 
-            if cmd_name == "dbgrst":
+            elif cmd_name == "dbgrst":
                 import machine
                 _reset_names = {
                     machine.PWRON_RESET: "PWRON_RESET (power-on)",
@@ -176,7 +176,7 @@ class Shell:
                 print("Last reset cause: %s [%d]" % (_reset_names.get(_reset_cause, "UNKNOWN"), _reset_cause))
                 continue
 
-            if cmd_name == "exit":
+            elif cmd_name == "exit":
                 break
 
             elif cmd_name == "help":

@@ -95,6 +95,7 @@ jobs:
           cd micropython/ports/esp32
           . $HOME/esp/esp-idf/export.sh
           export MPY_USER_MODULES_DIR="$GITHUB_WORKSPACE/mpy_vt/modules"
+          export MPY_DIR=micropython
 
           # Wipe previous hardware builds if compiling on a workspace cache hit
           make BOARD=LILYGO_T_DECK clean || true
