@@ -21,3 +21,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/zm/micropython.cmake)
 
 # include the vttui (text ui) module
 include(${CMAKE_CURRENT_LIST_DIR}/vttui/micropython.cmake)
+
+# include the xml module (RSS Feeds)
+include(${CMAKE_CURRENT_LIST_DIR}/xml/micropython.cmake)
+

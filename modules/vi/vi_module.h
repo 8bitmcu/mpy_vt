@@ -1,3 +1,9 @@
+/*
+ * MicroPython vi Interface Library
+ * Copyright (c) 2026 8bitmcu
+ * License: MIT
+ */
+
 #ifndef VI_MODULE_H
 #define VI_MODULE_H
 

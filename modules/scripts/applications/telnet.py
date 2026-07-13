@@ -1,3 +1,9 @@
+#
+# MicroPython Telnet Client
+# Copyright (c) 2026 8bitmcu
+# License: MIT
+#
+
 import select
 import socket
 import time

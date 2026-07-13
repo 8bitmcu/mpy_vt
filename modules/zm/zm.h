@@ -1,3 +1,9 @@
+/*
+ * MicroPython Frotz Interface Library
+ * Copyright (c) 2026 8bitmcu
+ * License: MIT
+ */
+
 #ifndef ZM_H
 #define ZM_H
 

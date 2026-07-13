@@ -1,3 +1,9 @@
+/*
+ * MicroPython Frotz Interface Library
+ * Copyright (c) 2026 8bitmcu
+ * License: MIT
+ */
+
 #include "zm.h"
 #include "py/mpconfig.h"
 #include "py/mphal.h"

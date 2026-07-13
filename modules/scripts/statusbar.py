@@ -1,3 +1,9 @@
+#
+# MicroPython StatusBar
+# Copyright (c) 2026 8bitmcu
+# License: MIT
+#
+
 import machine
 import time
 import network

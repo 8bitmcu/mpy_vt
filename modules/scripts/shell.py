@@ -1,3 +1,9 @@
+#
+# MicroPython Shell
+# Copyright (c) 2026 8bitmcu
+# License: MIT
+#
+
 import sys
 
 def _ensure_tui(env):
@@ -64,6 +70,7 @@ class Shell:
         self.register("nm",          _app("applications.netmgr",     tui=True))
         self.register("fm",          _app("applications.filemgr",    tui=True))
         self.register("irc",         _app("applications.irc",        tui=True))
+        self.register("rss",         _app("applications.rss",        tui=True))
         self.register("fc",          _app("applications.fontconfig", tui=True))
         self.register("vi",          _app("vi"))
         self.register("zm",          _app("zm"))

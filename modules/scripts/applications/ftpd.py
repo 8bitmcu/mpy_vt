@@ -1,3 +1,9 @@
+#
+# MicroPython Asyncio FTP Server
+# Copyright (c) 2026 8bitmcu
+# License: MIT
+#
+
 import os
 import network
 import asyncio

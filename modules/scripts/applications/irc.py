@@ -1,3 +1,9 @@
+#
+# MicroPython TUI IRC Client
+# Copyright (c) 2026 8bitmcu
+# License: MIT
+#
+
 import socket
 import select
 import sys

@@ -137,6 +137,12 @@ static void write_repeat_str(const char *s, size_t slen, int n) {
     vttui_write(s, slen);
 }
 
+// Forward declarations: full definitions live in the VTBlock section below,
+// but VTList's wrap support (render_list_item_multiline / list_item_rows)
+// needs them earlier in the file.
+static int next_chunk_len(const char *s, int byte_len, int width);
+static int line_display_rows(const char *s, int len, bool wrap, int width);
+
 // ─── UTF-8 box drawing
 // ────────────────────────────────────────────────────────
 
@@ -211,6 +217,68 @@ static void render_list_item(int x, int y, const char *text, size_t text_len,
   vttui_write_str("\033[0m");
 }
 
+// Renders a (possibly multi-line, '\n'-separated, and/or word/char-wrapped)
+// item starting at row y, using up to max_rows screen rows. The arrow (if
+// any) is only drawn on the item's very first row; every other row gets the
+// same fg/bg but no arrow glyph, just left_pad + text, so multi-row items
+// still look like one highlighted block. Returns the number of rows
+// actually drawn (<= max_rows).
+//
+// When do_wrap is true, each '\n'-delimited line is additionally split into
+// chunks of at most text_width visible characters (via next_chunk_len,
+// which is UTF-8 and ANSI-escape aware); when false, each '\n'-delimited
+// line is rendered as a single row (clipped to `width` by render_list_item,
+// same as before wrap support existed).
+static int render_list_item_multiline(int x, int y, const char *text,
+                                      size_t text_len, int width, int max_rows,
+                                      uint32_t fg, uint32_t bg,
+                                      const uint8_t *arrow_bytes, int arrow_len,
+                                      bool show_arrow, int left_pad,
+                                      bool do_wrap, int text_width) {
+  const char *p = text;
+  const char *end = text + text_len;
+  int row = 0;
+  bool first_line = true;
+  while (row < max_rows) {
+    const char *line_start = p;
+    while (p < end && *p != '\n')
+      p++;
+    size_t line_len = (size_t)(p - line_start);
+    bool at_newline = (p < end);
+
+    if (do_wrap && text_width > 0) {
+      int remaining = (int)line_len;
+      const char *pos = line_start;
+      bool first_chunk = true;
+      while ((first_chunk || remaining > 0) && row < max_rows) {
+        int cl = remaining > 0 ? next_chunk_len(pos, remaining, text_width) : 0;
+        bool arrow_this_row = show_arrow && first_line && first_chunk;
+        render_list_item(x, y + row, pos, (size_t)cl, width, fg, bg,
+                         arrow_bytes, arrow_len, arrow_this_row, left_pad);
+        row++;
+        if (cl == 0)
+          break;
+        pos += cl;
+        remaining -= cl;
+        first_chunk = false;
+      }
+    } else {
+      bool arrow_this_row = show_arrow && first_line;
+      render_list_item(x, y + row, line_start, line_len, width, fg, bg,
+                       arrow_bytes, arrow_len, arrow_this_row, left_pad);
+      row++;
+    }
+
+    first_line = false;
+    if (at_newline) {
+      p++;
+    } else {
+      break;
+    }
+  }
+  return row;
+}
+
 // ─── Object structs
 // ───────────────────────────────────────────────────────────
 
@@ -248,6 +316,8 @@ typedef struct _vttui_list_obj_t {
   int left_pad;
   mp_obj_t title;
   bool decorations;
+  bool multiline; // items may contain '\n' and span multiple rows
+  bool wrap;      // auto-wrap item text to the list's item width
 } vttui_list_obj_t;
 
 typedef struct _vttui_window_obj_t {
@@ -402,6 +472,9 @@ static vttui_label_obj_t *create_label(mp_obj_t text_obj, int rel_x, int rel_y,
 // ─── VTList
 // ───────────────────────────────────────────────────────────────────
 
+static bool list_is_multirow(vttui_list_obj_t *self);
+static int list_text_width(vttui_list_obj_t *self);
+
 static mp_obj_t vttui_list_draw(mp_obj_t self_in) {
   vttui_list_obj_t *self = MP_OBJ_TO_PTR(self_in);
   bool first_draw = (self->last_scroll == -1);
@@ -468,30 +541,63 @@ static mp_obj_t vttui_list_draw(mp_obj_t self_in) {
     }
   }
 
-  for (int i = 0; i < vis_h; i++) {
-    int item_idx = self->scroll + i;
-    int row = item_y + item_row_offset + i;
-    bool is_sel = (item_idx == self->selected);
-    bool was_sel = (item_idx == self->last_selected);
+  if (list_is_multirow(self)) {
+    // Items can span several rows, so a per-row is_sel/was_sel diff (as used
+    // below for the single-row case) doesn't work. Instead, just redraw all
+    // visible items whenever something that affects them has changed.
+    if (first_draw || scroll_changed || self->selected != self->last_selected) {
+      int text_width = self->wrap ? list_text_width(self) : 0;
+      int row = 0, item_idx = self->scroll;
+      while (row < vis_h && item_idx < self->item_count) {
+        bool is_sel = (item_idx == self->selected);
+        uint32_t fg = is_sel ? self->sel_fg : self->fg;
+        uint32_t bg = is_sel ? self->sel_bg : self->bg;
 
-    if (!scroll_changed && (is_sel == was_sel))
-      continue;
-
-    uint32_t fg = is_sel ? self->sel_fg : self->fg;
-    uint32_t bg = is_sel ? self->sel_bg : self->bg;
-
-    if (item_idx >= self->item_count) {
-      render_list_item(item_x, row, "", 0, item_w, fg, bg, self->arrow,
-                       self->arrow_len, false, self->left_pad);
-      continue;
+        mp_obj_t item = mp_obj_subscr(
+            self->items, MP_OBJ_NEW_SMALL_INT(item_idx), MP_OBJ_SENTINEL);
+        size_t text_len;
+        const char *text = mp_obj_str_get_data(item, &text_len);
+        int used = render_list_item_multiline(
+            item_x, item_y + item_row_offset + row, text, text_len, item_w,
+            vis_h - row, fg, bg, self->arrow, self->arrow_len, is_sel,
+            self->left_pad, self->wrap, text_width);
+        row += used;
+        item_idx++;
+      }
+      // Clear any leftover rows below the last item.
+      while (row < vis_h) {
+        render_list_item(item_x, item_y + item_row_offset + row, "", 0, item_w,
+                         self->fg, self->bg, self->arrow, self->arrow_len,
+                         false, self->left_pad);
+        row++;
+      }
     }
+  } else {
+    for (int i = 0; i < vis_h; i++) {
+      int item_idx = self->scroll + i;
+      int row = item_y + item_row_offset + i;
+      bool is_sel = (item_idx == self->selected);
+      bool was_sel = (item_idx == self->last_selected);
 
-    mp_obj_t item = mp_obj_subscr(self->items, MP_OBJ_NEW_SMALL_INT(item_idx),
-                                  MP_OBJ_SENTINEL);
-    size_t text_len;
-    const char *text = mp_obj_str_get_data(item, &text_len);
-    render_list_item(item_x, row, text, text_len, item_w, fg, bg, self->arrow,
-                     self->arrow_len, is_sel, self->left_pad);
+      if (!scroll_changed && (is_sel == was_sel))
+        continue;
+
+      uint32_t fg = is_sel ? self->sel_fg : self->fg;
+      uint32_t bg = is_sel ? self->sel_bg : self->bg;
+
+      if (item_idx >= self->item_count) {
+        render_list_item(item_x, row, "", 0, item_w, fg, bg, self->arrow,
+                         self->arrow_len, false, self->left_pad);
+        continue;
+      }
+
+      mp_obj_t item = mp_obj_subscr(self->items, MP_OBJ_NEW_SMALL_INT(item_idx),
+                                    MP_OBJ_SENTINEL);
+      size_t text_len;
+      const char *text = mp_obj_str_get_data(item, &text_len);
+      render_list_item(item_x, row, text, text_len, item_w, fg, bg, self->arrow,
+                       self->arrow_len, is_sel, self->left_pad);
+    }
   }
 
   self->last_selected = self->selected;
@@ -500,6 +606,54 @@ static mp_obj_t vttui_list_draw(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(vttui_list_draw_obj, vttui_list_draw);
 
+// Whether this list uses multi-row rendering at all (explicit '\n' splits,
+// auto-wrap, or both).
+static bool list_is_multirow(vttui_list_obj_t *self) {
+  return self->multiline || self->wrap;
+}
+
+// Visible-character width available for item text, i.e. item width minus
+// the arrow column and left_pad — mirrors the math render_list_item() does
+// internally, so wrap boundaries line up with what's actually drawn.
+static int list_text_width(vttui_list_obj_t *self) {
+  int item_w = self->decorations ? self->width - 2 : self->width;
+  int w = item_w;
+  if (self->arrow_len > 0)
+    w--;
+  w -= self->left_pad;
+  if (w < 1)
+    w = 1;
+  return w;
+}
+
+// Number of screen rows item `idx` occupies: 1 unless multiline/wrap is
+// enabled, in which case it's the sum of wrapped-row counts across each
+// '\n'-delimited line (wrap-splitting only happens if self->wrap is set).
+static int list_item_rows(vttui_list_obj_t *self, int idx) {
+  if (!list_is_multirow(self))
+    return 1;
+  mp_obj_t item =
+      mp_obj_subscr(self->items, MP_OBJ_NEW_SMALL_INT(idx), MP_OBJ_SENTINEL);
+  size_t len;
+  const char *text = mp_obj_str_get_data(item, &len);
+  int text_width = self->wrap ? list_text_width(self) : 0;
+
+  int rows = 0;
+  const char *ls = text;
+  const char *end = text + len;
+  for (const char *p = text; p <= end; p++) {
+    if (p == end || *p == '\n') {
+      if (p == end && p == ls)
+        break; // skip trailing empty segment after a final '\n'
+      int line_len = (int)(p - ls);
+      rows +=
+          self->wrap ? line_display_rows(ls, line_len, true, text_width) : 1;
+      ls = p + 1;
+    }
+  }
+  return rows > 0 ? rows : 1;
+}
+
 static void list_set_selected(vttui_list_obj_t *self, int idx) {
   if (idx < 0)
     idx = 0;
@@ -507,10 +661,28 @@ static void list_set_selected(vttui_list_obj_t *self, int idx) {
     idx = self->item_count - 1;
   self->selected = idx;
   int vis_h = self->decorations ? self->height - 2 : self->height;
-  if (self->selected < self->scroll)
-    self->scroll = self->selected;
-  else if (self->selected >= self->scroll + vis_h)
-    self->scroll = self->selected - vis_h + 1;
+
+  if (!list_is_multirow(self)) {
+    if (self->selected < self->scroll)
+      self->scroll = self->selected;
+    else if (self->selected >= self->scroll + vis_h)
+      self->scroll = self->selected - vis_h + 1;
+  } else {
+    // scroll is an item index (not a row count); walk it so that the run of
+    // items [scroll, selected] fits within vis_h screen rows.
+    if (self->selected < self->scroll) {
+      self->scroll = self->selected;
+    } else {
+      while (self->scroll < self->selected) {
+        int rows = 0;
+        for (int i = self->scroll; i <= self->selected; i++)
+          rows += list_item_rows(self, i);
+        if (rows <= vis_h)
+          break;
+        self->scroll++;
+      }
+    }
+  }
   if (self->on_change != mp_const_none)
     mp_call_function_1(self->on_change, MP_OBJ_NEW_SMALL_INT(self->selected));
 }
@@ -589,6 +761,8 @@ static const mp_arg_t make_list_args[] = {
     {MP_QSTR_align, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none}},
     {MP_QSTR_title, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none}},
     {MP_QSTR_decorations, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false}},
+    {MP_QSTR_multiline, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false}},
+    {MP_QSTR_wrap, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false}},
 };
 
 static vttui_list_obj_t *create_list(mp_arg_val_t *args, int abs_x, int abs_y,
@@ -612,9 +786,23 @@ static vttui_list_obj_t *create_list(mp_arg_val_t *args, int abs_x, int abs_y,
   if (list->item_count > 0 && sel >= list->item_count)
     sel = list->item_count - 1;
   list->decorations = args[15].u_bool;
+  list->multiline = args[16].u_bool;
+  list->wrap = args[17].u_bool;
   list->selected = sel;
   int vis_h = list->decorations ? (height - 2) : height;
-  list->scroll = (sel >= vis_h) ? sel - vis_h + 1 : 0;
+  if (!list_is_multirow(list)) {
+    list->scroll = (sel >= vis_h) ? sel - vis_h + 1 : 0;
+  } else {
+    list->scroll = 0;
+    while (list->scroll < sel) {
+      int rows = 0;
+      for (int i = list->scroll; i <= sel; i++)
+        rows += list_item_rows(list, i);
+      if (rows <= vis_h)
+        break;
+      list->scroll++;
+    }
+  }
 
   list->last_selected = -1;
   list->last_scroll = -1;

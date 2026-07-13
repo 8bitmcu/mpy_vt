@@ -1,3 +1,9 @@
+/*
+ * MicroPython vi Interface Library
+ * Copyright (c) 2026 8bitmcu
+ * License: MIT
+ */
+
 #include "vi_module.h"
 #include "py/obj.h"
 #include "py/runtime.h"

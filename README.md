@@ -4,7 +4,7 @@ This project implements a high-performance, attribute-aware terminal emulator fo
 
 This project features first-class support for the [LILYGO T-Deck](https://s.click.aliexpress.com/e/_c4agv9Wd), transforming it into a standalone portable terminal. The integration leverages the T-Deck’s hardware keyboard, trackball and 320x240 display, utilizing the ESP32-S3's PSRAM to manage the terminal's backbuffer and state.
 
-As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the [vi](https://en.wikipedia.org/wiki/Vi_(text_editor)) **text editor** and [frotz](https://davidgriffith.gitlab.io/frotz/) **ZMachine interpreter** that supports playing classic text games like [Zork](https://en.wikipedia.org/wiki/Zork). The firmware provides a Python-based **Telnet client**, **FTP server**, a TUI based **File Manager**, **IRC Client** and  **Network Manager** demonstrating how the terminal engine can be easily extended.
+As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the [vi](https://en.wikipedia.org/wiki/Vi_(text_editor)) **text editor** and [frotz](https://davidgriffith.gitlab.io/frotz/) **ZMachine interpreter** that supports playing classic text games like [Zork](https://en.wikipedia.org/wiki/Zork). The firmware provides a Python-based **Telnet client**, **FTP server**, a TUI based **File Manager**, **IRC Client**, **RSS Reader** and  **Network Manager** demonstrating how the terminal engine can be easily extended.
 
 | ASCII demo (running on CYD) | vi app |
 | :---: | :---: |
@@ -81,10 +81,12 @@ You can execute the following commands from the built-in shell:
 | `fc` | Font Configuration Utility |
 | `clear` | Clears the screen |
 | `irc` | Connects to an IRC channel given a server, port, nickname and channel |
+| `rss` | RSS Reader; connect to an http or https rss endpoint and retreives the titles |
 | `telnet` | Connects to a telnet server (try `telehack.com` or `bbs.retrocampus.com`) |
 | `zm` | Launches `dfrotz`, the ZMachine interpreter |
 | `ftpd` | Launches a FTP Server on `/` with user `admin` and pwd `admin` |
 
+To get out of the shell, type `exit`. This will bring you to the MicroPython shell, where you can type in python expressions. To get back to the built-in shell, type `sh` in the MicroPython shell.
 
 ## 🔨 How to Build (T-Deck)
 
@@ -184,6 +186,7 @@ This project is composed of the following C modules:
 | `vt` | Terminal Engine | Writable | The core emulator. Receives ANSI text, updates internal state, and renders changes to the st7789 display. |
 | `vttui` | User Interface | Read/Write | A simple to use curses-like text user interface library. |
 | `vi` | Text Editor | Read/Write | A C-integrated port of the classic `vi` editor. |
+| `xml` | Parsing Library | N/A | A C-port of the `yxml` library. |
 | `zm` | ZMachine Interpreter | Read/Write | A port of the `frotz` Zmachine interpreter. |
 
 
@@ -196,7 +199,8 @@ This project's source code is licensed under the **MIT License**. However, if yo
 * **st7789_mpy:** (c) Russ Hughes. MIT License
 * **vi** (Toybox): (c) Rob Landley, Jarno Mäkipää. 0BSD License (Zero-Clause BSD).
 * **frotz**: (c) Stefan Jokisch, David Griffith. GPLv2 License
-* **MicroPython**: (c) Damien P. George. MIT License.
+* **yxml**: Copyright (c) 2013-2014 Yoran Heling. MIT License
+* **MicroPython**: (c) Damien P. George. MIT License
 
 ### Fonts & Assets:
 * **Terminus Font:** (c) 2020 Dimitar Zhekov. Licensed under the [SIL Open Font License 1.1](https://scripts.sil.org/OFL).
