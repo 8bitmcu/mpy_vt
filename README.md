@@ -75,16 +75,19 @@ You can execute the following commands from the built-in shell:
 
 | Command | Description |
 | :---   | :--- |
-| `nm` | Starts the TUI Network Manager |
-| `fm` | Starts the TUI File Manager |
-| `vi` | Opens the vi port |
-| `fc` | Font Configuration Utility |
 | `clear` | Clears the screen |
-| `irc` | Connects to an IRC channel given a server, port, nickname and channel |
-| `rss` | RSS Reader; connect to an http or https rss endpoint and retreives the titles |
-| `telnet` | Connects to a telnet server (try `telehack.com` or `bbs.retrocampus.com`) |
-| `zm` | Launches `dfrotz`, the ZMachine interpreter |
+| `fav` | Built-in shell aliases |
+| `fc` | Font Configuration Utility |
+| `fm` | Starts the TUI File Manager |
 | `ftpd` | Launches a FTP Server on `/` with user `admin` and pwd `admin` |
+| `irc` | Connects to an IRC channel given a server, port, nickname and channel |
+| `menu` | An interactive shortcut menu for commands |
+| `ms` | Opens the minesweeper clone |
+| `nm` | Starts the TUI Network Manager |
+| `rss` | RSS Reader; connect to an http or https rss endpoint and retreives the titles |
+| `telnet` | Connects to a telnet server |
+| `vi` | Opens the vi port |
+| `zm` | Launches `dfrotz`, the ZMachine interpreter |
 
 To get out of the shell, type `exit`. This will bring you to the MicroPython shell, where you can type in python expressions. To get back to the built-in shell, type `sh` in the MicroPython shell.
 

@@ -168,7 +168,7 @@ class Shell:
         ver = sys.implementation.version
         version_str = f"{ver[0]}.{ver[1]}.{ver[2]}"
         # TODO: move versioning to makefile
-        print(f"MPY_VT v0.1.7; MicroPython v{version_str}\nType 'help' to see commands.")
+        print(f"MPY_VT v0.1.8; MicroPython v{version_str}\nType 'help' to see commands.")
 
         while self.running:
             try:

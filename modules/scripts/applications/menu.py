@@ -8,7 +8,7 @@
 import sys
 import json
 
-def save_feeds(json_file, json_data):
+def save_menu(json_file, json_data):
     try:
         with open(json_file, "w") as f:
             json.dump(json_data, f)
@@ -41,7 +41,7 @@ def main(env, args):
     win = tui.make_window(
             0, 0,
             width=env.cols, height=env.rows,
-            title=app_name.upper() + " LAUNCHER",
+            title=app_name.upper() + " MENU",
             fg=252, bg=18)
 
     while True:
@@ -107,7 +107,7 @@ def main(env, args):
                         if char in ('\r', '\n'):
                             if dlg.selected == 0:  # "Yes"
                                 del app[lst.value]
-                                save_feeds(app_file, app)
+                                save_menu(app_file, app)
                             break
                         elif char == 'w':
                             dlg.left()
@@ -166,7 +166,7 @@ def main(env, args):
                         char = sys.stdin.read(1)
                         if char in ('\r', '\n'):
                             app[name] = args_input.value
-                            save_feeds(app_file, app)
+                            save_menu(app_file, app)
 
                             tui.cursor_hide()
                             ui_state = "MAIN_MENU"
