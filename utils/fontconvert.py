@@ -18,7 +18,7 @@ import argparse
 
 BPP = 1
 CHARACTERS = ''.join(chr(c) for c in range(32, 127))
-UNICODE_SYM = ''.join(chr(c) for c in (0x2500, 0x2502, 0x250c, 0x2510, 0x2514, 0x2518))
+UNICODE_SYM = ''.join(chr(c) for c in (0x2500, 0x2502, 0x250c, 0x2510, 0x2514, 0x2518, 0x251C, 0x2524, 0x252C, 0x2534, 0x253C))
 
 UNICODE_ICONS = ''.join(chr(c) for c in range(0xE000, 0xE196))
 

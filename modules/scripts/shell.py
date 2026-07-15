@@ -5,6 +5,7 @@
 #
 
 import sys
+import json
 
 def _ensure_tui(env):
     if not hasattr(env, 'tui') or env.tui is None:
@@ -19,31 +20,6 @@ def _app(module, tui=False):
         app_module.main(env, args)
     return _run
 
-
-def _parse_args(line):
-    """Split a command line respecting single and double quoted strings."""
-    parts = []
-    current = []
-    in_quote = None
-    for ch in line:
-        if in_quote:
-            if ch == in_quote:
-                in_quote = None
-            else:
-                current.append(ch)
-        elif ch in ('"', "'"):
-            in_quote = ch
-        elif ch == ' ':
-            if current:
-                parts.append(''.join(current))
-                current = []
-        else:
-            current.append(ch)
-    if current:
-        parts.append(''.join(current))
-    return parts
-
-
 class Command:
     def __init__(self, func, env):
         self.func = func
@@ -52,9 +28,11 @@ class Command:
     def execute(self, *args):
         try:
             self.func(self.env, *args)
+            return True
         except Exception as e:
             print("\r\n[!] App Exception Caught:")
             sys.print_exception(e)
+            return False
 
 class Shell:
     _MAX_HISTORY = 20
@@ -65,8 +43,14 @@ class Shell:
         self.running = True
         self._history = []
 
+        self.aliases = {}
+        self.alias_file = "/flash/.favs.json"
+        self._load_aliases()
+
         self.register("ftpd",        _app("applications.ftpd"))
         self.register("telnet",      _app("applications.telnet"))
+        self.register("ms",          _app("applications.minesweeper"))
+        self.register("menu",        _app("applications.menu",       tui=True))
         self.register("nm",          _app("applications.netmgr",     tui=True))
         self.register("fm",          _app("applications.filemgr",    tui=True))
         self.register("irc",         _app("applications.irc",        tui=True))
@@ -75,13 +59,49 @@ class Shell:
         self.register("vi",          _app("vi"))
         self.register("zm",          _app("zm"))
 
+    def _load_aliases(self):
+        try:
+            with open(self.alias_file, "r") as f:
+                self.aliases = json.load(f)
+        except (OSError, ValueError):
+            pass
+
+    def _save_aliases(self):
+        try:
+            with open(self.alias_file, "w") as f:
+                json.dump(self.aliases, f)
+        except OSError as e:
+            print(f"Failed to save favs: {e}")
+
     def register(self, name, func):
         self.apps[name] = Command(func, self.env)
 
+    def parse_args(self, line):
+        """Split a command line respecting single and double quoted strings."""
+        parts = []
+        current = []
+        in_quote = None
+        for ch in line:
+            if in_quote:
+                if ch == in_quote:
+                    in_quote = None
+                else:
+                    current.append(ch)
+            elif ch in ('"', "'"):
+                in_quote = ch
+            elif ch == ' ':
+                if current:
+                    parts.append(''.join(current))
+                    current = []
+            else:
+                current.append(ch)
+        if current:
+            parts.append(''.join(current))
+        return parts
+
     def execute(self, cmd_name, *args):
         if cmd_name in self.apps:
-            self.apps[cmd_name].execute(*args)
-            return True
+            return self.apps[cmd_name].execute(*args)
         else:
             print(f"{cmd_name}: command not found")
             return False
@@ -162,9 +182,48 @@ class Shell:
             if not user_input:
                 continue
 
-            parts = _parse_args(user_input)
+            parts = self.parse_args(user_input)
             cmd_name = parts[0]
             args = parts[1:]
+
+            if cmd_name in self.aliases:
+                expanded_parts = self.parse_args(self.aliases[cmd_name])
+                if expanded_parts:
+                    cmd_name = expanded_parts[0]
+                    args = expanded_parts[1:] + args
+
+            if cmd_name == "fav":
+                if not args:
+                    # List all aliases
+                    if not self.aliases:
+                        print("No favs set. Use: fav <name> <command>")
+                    for k, v in sorted(self.aliases.items()):
+                        print(f"  {k} -> {v}")
+
+                elif args[0] == "rm" and len(args) == 2:
+                    # Remove an alias (e.g., fav rm myftp)
+                    key = args[1]
+                    if key in self.aliases:
+                        del self.aliases[key]
+                        self._save_aliases()
+                        print(f"Removed fav '{key}'.")
+                    else:
+                        print(f"fav '{key}' not found.")
+
+                elif len(args) >= 2:
+                    # Create or update an alias
+                    key = args[0]
+
+                    # Reconstruct the target command, restoring quotes if spaces exist
+                    val_parts = []
+                    for a in args[1:]:
+                        val_parts.append(f'"{a}"' if ' ' in a else a)
+
+                    val = " ".join(val_parts)
+                    self.aliases[key] = val
+                    self._save_aliases()
+                    print(f"Saved fav: {key} -> {val}")
+                continue
 
             if cmd_name == "clear":
                 print("\033[2J\033[H", end="")
@@ -198,3 +257,4 @@ class Shell:
                 self._history.append(user_input)
 
             self.execute(cmd_name, *args)
+

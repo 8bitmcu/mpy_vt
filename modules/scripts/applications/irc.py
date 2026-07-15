@@ -6,6 +6,7 @@
 
 import socket
 import select
+import random
 import sys
 
 def _parse(line):
@@ -25,6 +26,12 @@ def _parse(line):
     command = middle[0] if middle else ''
     params = middle[1:]
     return prefix, command, params, trailing
+
+def get_default_nick():
+    """Generates a random nickname in the format mpy_vtXXXX."""
+    chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    rand = ''.join(random.choice(chars) for _ in range(4))
+    return f"mpy_vt{rand}"
 
 def nick_from_prefix(prefix):
     """Extract nick from 'nick!user@host'."""
@@ -138,7 +145,7 @@ class IRCClient:
 def main(env, args):
     host    = args[0] if len(args) > 0 else None
     port    = int(args[1]) if len(args) > 1 else 6667
-    nick    = args[2] if len(args) > 2 else 'mpy'
+    nick    = args[2] if len(args) > 2 else get_default_nick()
     channel = args[3] if len(args) > 3 else None
 
     if not host:
@@ -174,7 +181,9 @@ def main(env, args):
         if msg and msg[1] in ('376', '422'):
             break
 
-    client.join(channel)
+    if channel:
+        client.join(channel)
+
     env.tui.cursor_show()
 
     while True:
@@ -196,10 +205,32 @@ def main(env, args):
                 char = sys.stdin.read(1)
                 if char in ('\r', '\n'):
                     text = chat_input.value
-                    if text:
+                    if not text:
+                        continue
+
+                    # Handle internal commands
+                    if text.startswith("/nick "):
+                        new_nick = text.split(" ", 1)[1]
+                        client.raw(f"NICK {new_nick}")
+                        nick = new_nick # Update local variable for UI formatting
+                        chat_win.push(f"--- Nick changed to {nick} ---\n")
+                        chat_input.set("")
+                    elif text.startswith("/join "):
+                        target_channel = text.split(" ", 1)[1]
+                        client.join(target_channel)
+                        channel = target_channel # Update local channel for sending
+                        chat_win.push(f"--- Joined {channel} ---\n")
+                        chat_input.set("")
+
+                    # Handle normal chat
+                    elif channel:
                         client.send(channel, text)
                         chat_win.push(RED + f"\x1b[1m{nick}\x1b[22m: {text}" + CLR + "\n")
                         chat_input.set("")
+                    else:
+                        chat_win.push("--- No channel joined ---\n")
+                        chat_input.set("")
+
                 elif char in ('\x08', '\x7f'):
                     chat_input.backspace()
                 elif char == '\x1b':

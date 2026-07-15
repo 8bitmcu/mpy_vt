@@ -11,6 +11,7 @@ file_association = {
     "md": "vi",
     "py": "vi",
     "conf": "vi",
+    "json": "vi",
     "dat": "zm",
     "z3": "zm",
     "z5": "zm",
@@ -46,10 +47,10 @@ def joinpath(d, name):
 
 def show_error(win, tui, msg):
     dlg = win.make_dialog(msg,
-                          x=2, y=win.inner_h//2 - 2,
-                          width=win.inner_w - 4, height=5,
+                          x=2, y=win.inner_h//2-2,
+                          width=win.inner_w-4, height=5,
                           fg=252, bg=18,
-                          btn1="OK", btn2="OK",
+                          btn1="OK",
                           sel_fg=0, sel_bg=252,
                           title="ERROR")
     win.invalidate()

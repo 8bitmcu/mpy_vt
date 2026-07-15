@@ -43,6 +43,42 @@ try:
                 f" \n"
                 f"Happy hacking!")
 
+    import json
+    with open(".rss.json", "x") as f:
+        json.dump({
+            "BBC News World": "http://feeds.bbci.co.uk/news/world/rss.xml",
+            "The New York Times": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
+            "CNN Top Stories": "http://rss.cnn.com/rss/cnn_topstories.rss",
+            "NPR": "https://feeds.npr.org/1001/rss.xml",
+            "Hacker News": "https://news.ycombinator.com/rss",
+            "The Verge": "https://www.theverge.com/rss/index.xml",
+            "TechCrunch": "https://techcrunch.com/feed/",
+            "Ars Technica": "https://feeds.arstechnica.com/arstechnica/index",
+            "Hack A Day": "https://hackaday.com/blog/feed/",
+            "NASA": "https://www.nasa.gov/news-release/feed/",
+            "Nature": "https://www.nature.com/nature.rss",
+            "MIT Technology Review": "https://www.technologyreview.com/feed/",
+            "Quanta Magazine": "https://api.quantamagazine.org/feed/",
+    }, f)
+
+    with open(".irc.json", "x") as f:
+        json.dump({
+            "Libera.Chat": "irc.libera.chat 6667",
+            "OFTC": "irc.oftc.net 6667",
+            "EFnet": "irc.efnet.org 6667",
+            "Rizon": "irc.rizon.net 6667",
+            "Undernet": "irc.undernet.org 6667",
+            "DALnet": "irc.dal.net 6667",
+            "QuakeNet": "irc.quakenet.org 6667",
+            "IRCnet": "irc.ircnet.com 6667"
+    }, f)
+
+    with open(".telnet.json", "x") as f:
+        json.dump({
+            "Telehack": "telehack.com",
+            "RetroCampus": "bbs.retrocampus.com"
+    }, f)
+
 except:
     pass
 

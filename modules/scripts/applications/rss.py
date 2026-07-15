@@ -4,22 +4,24 @@
 # License: MIT
 #
 
+import gc
 import sys
-import XML
+import xml
 import requests
 
 def main(env, args):
-    """ Creates a TUI for browsing RSS feeds """
+    """ Creates a TUI for browsing and reading RSS feeds """
 
     host = args[0] if len(args) > 0 else None
     if not host:
-        print("Usage: rss <host>")
+        print("Usage: rss <URL>")
         return
 
     tui = env.tui
     ui_state = "MAIN_MENU"
     tui.enter_altscreen()
     tui.cursor_hide()
+    story = None
 
     win = tui.make_window(
             0, 0,
@@ -36,19 +38,16 @@ def main(env, args):
                    align="center")
 
     titles = []
+    items = []
     try:
         response = requests.get(host)
         rss_data = response.text
-        parser = XML.XML()
-        items = parser.findall(rss_data, "item")
 
-        for item_xml in items:
-            # Extract specific elements from within each item block
-            title = parser.find(item_xml, "title")
+        fields_to_grab = ("title", "description")
+        items = xml.extract(rss_data, "item", fields_to_grab)
 
-            # Strip CDATA tags if the RSS feed uses them
-            if title and title.startswith("<![CDATA["):
-                title = title[9:-3]
+        for _, item in enumerate(items):
+            title = item.get('title', 'N/A')
             titles.append("- " + title)
 
     except Exception as e:
@@ -56,12 +55,14 @@ def main(env, args):
         tui.cursor_show()
         print(f"Error: {e}")
         return
+    finally:
+        response.close()
 
     while True:
 
         if ui_state == "MAIN_MENU":
 
-            status = win.make_label("[w/s] nav | [q]uit",
+            status = win.make_label("[w/s] nav | [enter] read | [q]uit",
                                     0, win.inner_h-1,
                                     fg=0, bg=252,
                                     width=win.inner_w)
@@ -81,6 +82,10 @@ def main(env, args):
                 tui.draw()
 
                 char = sys.stdin.read(1)
+                if char == "\n" or char == "\r":
+                    story = lst.index
+                    ui_state = "READ_STORY"
+                    break
                 if char == "w":
                     lst.up()
                 elif char == "s":
@@ -89,8 +94,36 @@ def main(env, args):
                     ui_state = "QUIT"
                     break
 
+        elif ui_state == "READ_STORY":
+            desc = items[story].get('description', 'No description available.')
+
+            lbl = win.make_block(desc.strip(), 0, 0,
+                  width=win.inner_w, height=win.inner_h-1,
+                  fg=252, bg=18,
+                  scroll=True, wrap=True)
+
+            status = win.make_label("[b]ack | [q]uit",
+                                    0, win.inner_h-1,
+                                    fg=0, bg=252,
+                                    width=win.inner_w)
+
+            win.invalidate()
+            while True:
+                win.draw()
+                lbl.draw()
+                status.draw()
+                tui.draw()
+
+                char = sys.stdin.read(1)
+                if char == "b":
+                    ui_state = "MAIN_MENU"
+                    break
+                if char == "q":
+                    ui_state = "QUIT"
+                    break
+
         elif ui_state == "QUIT":
+            gc.collect()
             tui.exit_altscreen()
             tui.cursor_show()
             return
-

@@ -719,23 +719,37 @@ static MP_DEFINE_CONST_DICT(vttui_list_locals_dict,
                             vttui_list_locals_dict_table);
 
 static void vttui_list_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
-  if (dest[0] != MP_OBJ_NULL)
-    return;
   vttui_list_obj_t *self = MP_OBJ_TO_PTR(self_in);
-  if (attr == MP_QSTR_selected) {
-    dest[0] = MP_OBJ_NEW_SMALL_INT(self->selected);
+
+  if (dest[0] == MP_OBJ_NULL) {
+    // Load.
+    if (attr == MP_QSTR_selected || attr == MP_QSTR_index) {
+      dest[0] = MP_OBJ_NEW_SMALL_INT(self->selected);
+      return;
+    }
+    if (attr == MP_QSTR_value) {
+      dest[0] = mp_obj_subscr(self->items, MP_OBJ_NEW_SMALL_INT(self->selected),
+                              MP_OBJ_SENTINEL);
+      return;
+    }
+    mp_map_elem_t *elem = mp_map_lookup((mp_map_t *)&vttui_list_locals_dict.map,
+                                        MP_OBJ_NEW_QSTR(attr), MP_MAP_LOOKUP);
+    if (elem) {
+      dest[0] = elem->value;
+      dest[1] = self_in;
+    }
     return;
   }
-  if (attr == MP_QSTR_value) {
-    dest[0] = mp_obj_subscr(self->items, MP_OBJ_NEW_SMALL_INT(self->selected),
-                            MP_OBJ_SENTINEL);
+
+  if (dest[0] == MP_OBJ_SENTINEL) {
+    // Store. `index` is the only writable attribute: setting it moves the
+    // selection (and adjusts scroll, and fires on_change) exactly like
+    // calling select(idx).
+    if (attr == MP_QSTR_index) {
+      list_set_selected(self, mp_obj_get_int(dest[1]));
+      dest[0] = MP_OBJ_NULL; // signal success
+    }
     return;
-  }
-  mp_map_elem_t *elem = mp_map_lookup((mp_map_t *)&vttui_list_locals_dict.map,
-                                      MP_OBJ_NEW_QSTR(attr), MP_MAP_LOOKUP);
-  if (elem) {
-    dest[0] = elem->value;
-    dest[1] = self_in;
   }
 }
 
@@ -1339,8 +1353,29 @@ static vttui_block_obj_t *create_block(mp_arg_val_t *args, int abs_x, int abs_y,
 
 static void render_dialog_buttons(vttui_dialog_obj_t *self, int inner_x,
                                   int inner_y, int inner_w, int inner_h) {
-  size_t b1len, b2len;
+  size_t b1len;
   const char *b1 = mp_obj_str_get_data(self->btn1, &b1len);
+  bool has_btn2 = (self->btn2 != mp_const_none);
+  int by = inner_y + inner_h - 1;
+
+  if (!has_btn2) {
+    // Single button, centered. It's always "selected" since there's nothing
+    // else to navigate to.
+    int total_w = (int)b1len + 4;
+    int bx = inner_x + (inner_w - total_w) / 2;
+    if (bx < inner_x)
+      bx = inner_x;
+
+    vttui_sgr(self->sel_fg, self->sel_bg, false);
+    vttui_move(bx, by);
+    vttui_write_str("[ ");
+    vttui_write(b1, b1len);
+    vttui_write_str(" ]");
+    vttui_write_str("\033[0m");
+    return;
+  }
+
+  size_t b2len;
   const char *b2 = mp_obj_str_get_data(self->btn2, &b2len);
 
   // Each button is "[ label ]" (4 overhead), gap of 3 between them.
@@ -1348,7 +1383,6 @@ static void render_dialog_buttons(vttui_dialog_obj_t *self, int inner_x,
   int bx = inner_x + (inner_w - total_w) / 2;
   if (bx < inner_x)
     bx = inner_x;
-  int by = inner_y + inner_h - 1;
 
   uint32_t fg0 = (self->selected == 0) ? self->sel_fg : self->fg;
   uint32_t bg0 = (self->selected == 0) ? self->sel_bg : self->bg;
@@ -1487,6 +1521,8 @@ static MP_DEFINE_CONST_FUN_OBJ_1(vttui_dialog_left_obj, vttui_dialog_left);
 
 static mp_obj_t vttui_dialog_right(mp_obj_t self_in) {
   vttui_dialog_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  if (self->btn2 == mp_const_none)
+    return mp_const_none; // nothing to move to
   if (self->selected < 1)
     self->selected = 1;
   return mp_const_none;
@@ -1532,9 +1568,7 @@ static const mp_arg_t make_dialog_args[] = {
     {MP_QSTR_btn1,
      MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_OBJ,
      {.u_obj = MP_OBJ_NULL}},
-    {MP_QSTR_btn2,
-     MP_ARG_KW_ONLY | MP_ARG_REQUIRED | MP_ARG_OBJ,
-     {.u_obj = MP_OBJ_NULL}},
+    {MP_QSTR_btn2, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none}},
     {MP_QSTR_sel_fg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
     {MP_QSTR_sel_bg, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = -1}},
     {MP_QSTR_selected, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0}},
@@ -1558,7 +1592,7 @@ static vttui_dialog_obj_t *create_dialog(mp_arg_val_t *args, int abs_x,
   dlg->btn1 = args[7].u_obj;
   dlg->btn2 = args[8].u_obj;
   dlg->title = args[12].u_obj;
-  dlg->selected = args[11].u_int;
+  dlg->selected = (dlg->btn2 == mp_const_none) ? 0 : args[11].u_int;
   dlg->last_selected = -1;
   dlg->decorations = args[13].u_bool;
   return dlg;
