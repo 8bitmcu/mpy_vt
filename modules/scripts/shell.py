@@ -47,6 +47,7 @@ class Shell:
         self.alias_file = "/flash/.favs.json"
         self._load_aliases()
 
+        self.register("ftp",         _app("applications.ftp"))
         self.register("ftpd",        _app("applications.ftpd"))
         self.register("telnet",      _app("applications.telnet"))
         self.register("ms",          _app("applications.minesweeper"))
@@ -168,7 +169,7 @@ class Shell:
         ver = sys.implementation.version
         version_str = f"{ver[0]}.{ver[1]}.{ver[2]}"
         # TODO: move versioning to makefile
-        print(f"MPY_VT v0.1.8; MicroPython v{version_str}\nType 'help' to see commands.")
+        print(f"vtOS v0.1.8; MicroPython v{version_str}\nType 'help' to see commands.")
 
         while self.running:
             try:

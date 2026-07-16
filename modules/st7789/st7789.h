@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2019-2021 Russ Hughes
- * Modified by 8bitmcu 2026 for mpy_vt integration.
+ * Modified by 8bitmcu 2026 for vtOS integration.
  */
 
 #ifndef __ST7789_H__

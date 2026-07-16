@@ -62,6 +62,13 @@ def show_error(win, tui, msg):
         if char in ('\r', '\n'):
             break
 
+def get_parent(current_dir):
+    if current_dir != "/":
+        parts = current_dir.split('/')
+        new_path = "/".join(parts[:-1])
+        return new_path if new_path else "/"
+    return current_dir
+
 def main(env, *args):
     """ Creates a TUI for browsing and manipulating files """
 
@@ -88,7 +95,7 @@ def main(env, *args):
                                  1, 0,
                                  fg=252, bg=18)
 
-            status = win.make_label("[w/s] nav | [h]elp | [q]uit",
+            status = win.make_label("[w/s] nav | [h]elp | [b]ack | [q]uit",
                                     0, win.inner_h-1,
                                     fg=0, bg=252,
                                     width=win.inner_w)
@@ -125,11 +132,14 @@ def main(env, *args):
                 status.draw()
                 tui.draw()
 
-                # Empty directory: only allow quit/help
+                # Empty directory: only allow quit/back/help
                 if not items:
                     char = sys.stdin.read(1)
                     if char == "h":
                         ui_state = "HELP"
+                        break
+                    elif char == "b":
+                        current_dir = get_parent(current_dir)
                         break
                     elif char == "q":
                         ui_state = "QUIT"
@@ -140,10 +150,7 @@ def main(env, *args):
                 if char in ('\r', '\n'): # enter key
                     selected_item = items[lst.selected]
                     if selected_item == "..":
-                        if current_dir != "/":
-                            parts = current_dir.split('/')
-                            new_path = "/".join(parts[:-1])
-                            current_dir = new_path if new_path else "/"
+                        current_dir = get_parent(current_dir)
                     else:
                         new_path = joinpath(current_dir, selected_item)
                         try:
@@ -168,6 +175,9 @@ def main(env, *args):
                     lst.up()
                 elif char == "s":
                     lst.down()
+                elif char == "b":
+                    current_dir = get_parent(current_dir)
+                    break
                 elif char == "i":    # file/dir info
                     selected_item = items[lst.selected]
                     if selected_item == "..":
@@ -452,8 +462,8 @@ def main(env, *args):
         elif ui_state == "HELP":
             blk = win.make_block(f"{BOLD}w: {CLR}move up\n"
                                  f"{BOLD}s: {CLR}move down\n"
+                                 f"{BOLD}b: {CLR}move up one directory\n"
                                  f"{BOLD}i: {CLR}file or directory info\n"
-                                 f"{BOLD}o: {CLR}open file\n"
                                  f"{BOLD}m: {CLR}move file or directory\n"
                                  f"{BOLD}c: {CLR}copy file or directory\n"
                                  f"{BOLD}r: {CLR}rename file or directory\n"
@@ -487,3 +497,4 @@ def main(env, *args):
             tui.exit_altscreen()
             tui.cursor_show()
             return
+

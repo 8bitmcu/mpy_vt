@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# This utility will convert a monospaced font for usage with mpy_vt
+# This utility will convert a monospaced font for usage with vtOS
 #
 # Supports TrueType/OpenType (.ttf/.otf) fonts, rendered and quantized via
 # PIL, as well as BDF (.bdf) bitmap fonts, whose glyph bitmaps are read

@@ -27,7 +27,7 @@ try:
     os.chdir('/flash')
 
     with open("WELCOME.md", "x") as f:
-        f.write(f"# Welcome to MPY_VT!\n"
+        f.write(f"# Welcome to vtOS!\n"
                 f"This is your pocket hackable terminal.\n"
                 f"A few things to get you started:\n"
                 f" \n"

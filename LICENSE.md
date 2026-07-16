@@ -1,7 +1,7 @@
 # License and Attribution
 
 ## Primary License
-**mpy_vt** is licensed under the **MIT License**.
+**vtOS** is licensed under the **MIT License**.
 
 © 2026 Vincent (8bitmcu)
 
@@ -15,7 +15,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ## Third-Party Component Licenses
 
-### 1. st (Suckless Terminal)
+### st (Suckless Terminal)
 The core terminal engine is based on `st`.
 **License:** MIT/X Consortium License
 
@@ -34,27 +34,27 @@ The core terminal engine is based on `st`.
 - © 2013-2014 Markus Teich <markus dot teich at stusta dot mhn dot de>
 - © 2014-2015 Laslo Hunhold <dev at frign dot de>
 
-### 2. vi (Toybox)
+### vi (Toybox)
 The `vi` implementation is derived from Toybox.
 * **Copyright:** 2015 Rob Landley <rob@landley.net>, 2019 Jarno Mäkipää <jmakip87@gmail.com>.
 * **License:** **0BSD** (Zero-Clause BSD).
 * **Summary:** Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted.
 
-### 3. frotz (Zmachine interpreter)
+### frotz (Zmachine interpreter)
 The Z-Machine interpreter is based on Frotz.
 * **Copyright:** 1995-1997 Stefan Jokisch, 1998-present David Griffith and contributors.
 * **License:** **GNU General Public License v2.0 (or later)**.
 * **Summary:** Frotz is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any later version.
 
-### 4. st7789_mpy
+### st7789_mpy
 * **Copyright:** Russ Hughes.
 * **License:** **MIT License**.
 
-### 5. Terminus Font
+### Terminus Font
 * **Copyright:** (c) 2020 Dimitar Zhekov. 
 * **License:** **SIL Open Font License 1.1**.
 
-### 6. MicroPython
+### MicroPython
 * **Copyright:** (c) Damien P. George.
 * **License:** **MIT License**.
 
@@ -65,4 +65,4 @@ While the original `vi` code follows the 0BSD license and the `st` engine follow
 
 ---
 
-While the original source code for mpy_vt is provided under the MIT license, compiling it with the optional frotz module creates a combined work that falls under the GNU General Public License v2.0 (GPL-2.0) upon distribution.
+While the original source code for vtOS is provided under the MIT license, compiling it with the optional frotz module creates a combined work that falls under the GNU General Public License v2.0 (GPL-2.0) upon distribution.

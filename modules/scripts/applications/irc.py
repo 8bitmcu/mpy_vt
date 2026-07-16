@@ -28,10 +28,10 @@ def _parse(line):
     return prefix, command, params, trailing
 
 def get_default_nick():
-    """Generates a random nickname in the format mpy_vtXXXX."""
+    """Generates a random nickname in the format vtOS_XXXX."""
     chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
     rand = ''.join(random.choice(chars) for _ in range(4))
-    return f"mpy_vt{rand}"
+    return f"vtOS_{rand}"
 
 def nick_from_prefix(prefix):
     """Extract nick from 'nick!user@host'."""
@@ -221,6 +221,11 @@ def main(env, args):
                         channel = target_channel # Update local channel for sending
                         chat_win.push(f"--- Joined {channel} ---\n")
                         chat_input.set("")
+                    elif text == "/quit":
+                        client.disconnect()
+                        env.tui.exit_altscreen()
+                        env.tui.cursor_show()
+                        return
 
                     # Handle normal chat
                     elif channel:

@@ -19,10 +19,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout mpy_vt repository
+      - name: Checkout vtOS repository
         uses: actions/checkout@v4
         with:
-          path: mpy_vt
+          path: vtOS
 
       - name: Cache MicroPython Repository and Submodules
         id: cache-micropython
@@ -77,7 +77,7 @@ jobs:
         run: |
           # Freshly copy your local board configurations over to the ported structure
           rm -rf micropython/ports/esp32/boards/LILYGO_T_DECK
-          cp -r mpy_vt/boards/LILYGO_T_DECK micropython/ports/esp32/boards/
+          cp -r vtOS/boards/LILYGO_T_DECK micropython/ports/esp32/boards/
 
           . $HOME/esp/esp-idf/export.sh
           cd micropython
@@ -96,14 +96,14 @@ jobs:
 
           cd micropython/ports/esp32
           . $HOME/esp/esp-idf/export.sh
-          export MPY_USER_MODULES_DIR="$GITHUB_WORKSPACE/mpy_vt/modules"
+          export MPY_USER_MODULES_DIR="$GITHUB_WORKSPACE/vtOS/modules"
 
           # Wipe previous hardware builds if compiling on a workspace cache hit
           make BOARD=LILYGO_T_DECK clean || true
 
           if ! make BOARD=LILYGO_T_DECK CCACHE_ENABLE=1 \
-                   USER_C_MODULES=$GITHUB_WORKSPACE/mpy_vt/modules \
-                   FROZEN_MANIFEST=$GITHUB_WORKSPACE/mpy_vt/modules/manifest.py; then
+                   USER_C_MODULES=$GITHUB_WORKSPACE/vtOS/modules \
+                   FROZEN_MANIFEST=$GITHUB_WORKSPACE/vtOS/modules/manifest.py; then
               echo "===================================================="
               echo "   COMPILATION FAILED: DUMPING LOG DIRECTORY        "
               echo "===================================================="
@@ -122,12 +122,12 @@ jobs:
             REF_NAME="${{ github.event.inputs.version_tag }}"
           fi
 
-          cp $BUILD_DIR/firmware.bin release_assets/mpy_vt-$REF_NAME.bin
+          cp $BUILD_DIR/firmware.bin release_assets/vtOS-$REF_NAME.bin
           cp $BUILD_DIR/bootloader/bootloader.bin release_assets/bootloader.bin
           cp $BUILD_DIR/partition_table/partition-table.bin release_assets/partition-table.bin
 
           cd release_assets
-          zip -r ../mpy_vt-$REF_NAME.zip ./*
+          zip -r ../vtOS-$REF_NAME.zip ./*
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -136,7 +136,7 @@ jobs:
           name: Release ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
           files: |
-            mpy_vt-*.zip
-            release_assets/mpy_vt-*.bin
+            vtOS-*.zip
+            release_assets/vtOS-*.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

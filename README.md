@@ -1,4 +1,4 @@
-# mpy_vt: Optimized ANSI Terminal Engine for MicroPython
+# vtOS: Optimized ANSI Terminal Engine for MicroPython
 
 This project implements a high-performance, attribute-aware terminal emulator for MicroPython. By wrapping the [st](https://st.suckless.org/) (suckless terminal) engine in a custom C module, it achieves desktop-class terminal features on embedded hardware, including a **zero-allocation status bar** for real-time telemetry without heap fragmentation. Unlike basic serial monitors, it handles complex escape sequences, colors, and text attributes with the efficiency and speed characteristic of suckless software.
 
@@ -40,7 +40,7 @@ You can download and flash the latest pre-compiled firmware directly to your T-D
 
 ### Option A: Flash from command line
 
-1. **Download the Firmware**: Go to the [Releases Page](https://github.com/8bitmcu/mpy_vt/releases) and download the latest *.bin asset.
+1. **Download the Firmware**: Go to the [Releases Page](https://github.com/8bitmcu/vtOS/releases) and download the latest *.bin asset.
 
 2. **Flash to the T-Deck**: Make sure your T-Deck is plugged in via USB, then use esptool.py to write the firmware to the device. You may need to install esptool first (`pip install esptool`).
 
@@ -52,11 +52,11 @@ esptool.py -p /dev/ttyACM0 -b 460800 --chip esp32s3 write_flash 0x0 firmware.bin
 
 ### Option B: Bootloader (Launcher)
 
-This firmware is fully compatible with [Launcher](https://bmorcelli.github.io/Launcher), an on-device application launcher and bootloader for ESP32 devices. This method is perfect if you want to seamlessly swap between `mpy_vt` and other firmware on the go without needing a PC.
+This firmware is fully compatible with [Launcher](https://bmorcelli.github.io/Launcher), an on-device application launcher and bootloader for ESP32 devices. This method is perfect if you want to seamlessly swap between `vtOS` and other firmware on the go without needing a PC.
 
 1. **Install Launcher**: Open a Web Serial compatible browser (like Chrome or Edge) and navigate to the Launcher website. Select Web Flasher and follow the prompts to install the bootloader directly to your T-Deck.
 2. **Prepare your SD Card**: Download the latest *.bin from the Releases Page and copy it to a MicroSD card.
-3. **Boot and Install**: Insert the MicroSD card into your T-Deck and power it on. Using the Launcher interface on the device's screen, navigate to your SD card and select the `mpy_vt` binary to flash it.
+3. **Boot and Install**: Insert the MicroSD card into your T-Deck and power it on. Using the Launcher interface on the device's screen, navigate to your SD card and select the `vtOS` binary to flash it.
 
 
 ## 📝 How to use
@@ -79,6 +79,7 @@ You can execute the following commands from the built-in shell:
 | `fav` | Built-in shell aliases |
 | `fc` | Font Configuration Utility |
 | `fm` | Starts the TUI File Manager |
+| `ftp` | FTP Client that mounts it's content as a VFS |
 | `ftpd` | Launches a FTP Server on `/` with user `admin` and pwd `admin` |
 | `irc` | Connects to an IRC channel given a server, port, nickname and channel |
 | `menu` | An interactive shortcut menu for commands |
@@ -99,10 +100,10 @@ Building this project requires a cross-compiler for the ESP32-S3 and the MicroPy
 
 ```bash
 # Clone this repository
-git clone https://github.com/8bitmcu/mpy_vt.git
+git clone https://github.com/8bitmcu/vtOS.git
 
 # Copy the T-Deck board definition into your micropython source directory:
-cp -r /path/to/mpy_vt/boards/LILYGO_T_DECK /path/to/micropython/ports/esp32/boards/
+cp -r /path/to/vtOS/boards/LILYGO_T_DECK /path/to/micropython/ports/esp32/boards/
 
 # Initialize the ESP-IDF environment
 source $HOME/esp/esp-idf/export.sh
@@ -115,7 +116,7 @@ cd /path/to/micropython/ports/esp32
 
 # Specify the BOARD as LILYGO_T_DECK to enable PSRAM / Flash support
 # Specify USER_C_MODULES and FROZEN_MANIFEST for C modules and python scripts
-make BOARD=LILYGO_T_DECK USER_C_MODULES=/path/to/mpy_vt/modules FROZEN_MANIFEST=/path/to/mpy_vt/modules/manifest.py
+make BOARD=LILYGO_T_DECK USER_C_MODULES=/path/to/vtOS/modules FROZEN_MANIFEST=/path/to/vtOS/modules/manifest.py
 
 # Flash the firmware to the device
 esptool.py -p /dev/ttyACM0 -b 460800 --chip esp32s3 write_flash 0x0 firmware.bin
@@ -137,7 +138,7 @@ If you just want to build and flash the firmware, run these commands in order:
 ```Bash
 
 # 1. Clone this repository and enter in it
-git clone https://github.com/8bitmcu/mpy_vt.git && cd mpy_vt
+git clone https://github.com/8bitmcu/vtOS.git && cd vtOS
 
 # 2. Initialize the environment (pulls MicroPython source)
 make init
