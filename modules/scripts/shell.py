@@ -7,15 +7,16 @@
 import sys
 import json
 
-def _ensure_tui(env):
-    if not hasattr(env, 'tui') or env.tui is None:
-        import vttui
-        env.tui = vttui.VTTUI(env, env.cols, env.rows)
-
-def _app(module, tui=False):
+def _app(module, tui=False, audio=False):
     def _run(env, *args):
         if tui:
-            _ensure_tui(env)
+            if not hasattr(env, 'tui') or env.tui is None:
+                import vttui
+                env.tui = vttui.VTTUI(env, env.cols, env.rows)
+        if audio:
+            if not hasattr(env, 'audio') or env.audio is None:
+                import audioplayer
+                env.audio = audioplayer.AudioPlayer(bck=7, ws=5, dout=6)
         app_module = __import__(module, None, None, [''])
         app_module.main(env, args)
     return _run
@@ -57,6 +58,7 @@ class Shell:
         self.register("irc",         _app("applications.irc",        tui=True))
         self.register("rss",         _app("applications.rss",        tui=True))
         self.register("fc",          _app("applications.fontconfig", tui=True))
+        self.register("play",        _app("applications.player",     tui=True, audio=True))
         self.register("vi",          _app("vi"))
         self.register("zm",          _app("zm"))
 

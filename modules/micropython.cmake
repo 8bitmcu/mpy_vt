@@ -25,3 +25,5 @@ include(${CMAKE_CURRENT_LIST_DIR}/vttui/micropython.cmake)
 # include the xml module (RSS Feeds)
 include(${CMAKE_CURRENT_LIST_DIR}/xml/micropython.cmake)
 
+# include the i2s module (audio)
+include(${CMAKE_CURRENT_LIST_DIR}/i2s/micropython.cmake)

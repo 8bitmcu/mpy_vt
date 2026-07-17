@@ -48,6 +48,7 @@ build:
 		-v $(BOARD_DIR):/opt/boards \
 		$(IDF_IMAGE) \
 		/bin/bash -c "cp -r /opt/boards/* /opt/micropython/ports/esp32/boards/ && \
+			cp /opt/all_modules/idf_component.yml /opt/micropython/ports/esp32/main/idf_component.yml && \
 			source /opt/esp/idf/export.sh && \
 			make -C /opt/micropython/mpy-cross && \
 			make -C /opt/micropython/ports/esp32 \

@@ -1,8 +1,8 @@
-# vtOS: Optimized ANSI Terminal Engine for MicroPython
+# vtOS: A hobby firmware with a terminal UI
 
-This project implements a high-performance, attribute-aware terminal emulator for MicroPython. By wrapping the [st](https://st.suckless.org/) (suckless terminal) engine in a custom C module, it achieves desktop-class terminal features on embedded hardware, including a **zero-allocation status bar** for real-time telemetry without heap fragmentation. Unlike basic serial monitors, it handles complex escape sequences, colors, and text attributes with the efficiency and speed characteristic of suckless software.
+This project features first-class support for the [LILYGO T-Deck](https://s.click.aliexpress.com/e/_c4agv9Wd), transforming it into a standalone portable terminal.
 
-This project features first-class support for the [LILYGO T-Deck](https://s.click.aliexpress.com/e/_c4agv9Wd), transforming it into a standalone portable terminal. The integration leverages the T-Deck’s hardware keyboard, trackball and 320x240 display, utilizing the ESP32-S3's PSRAM to manage the terminal's backbuffer and state.
+This project implements a high-performance, attribute-aware terminal emulator for MicroPython. By wrapping the [st](https://st.suckless.org/) (suckless terminal) engine in a custom C module, it achieves desktop-class terminal features on embedded hardware, including a **zero-allocation status bar** for real-time telemetry without heap fragmentation.
 
 As a showcase of the engine's capabilities, this project includes a fully functional, VFS-aware C port of the [vi](https://en.wikipedia.org/wiki/Vi_(text_editor)) **text editor** and [frotz](https://davidgriffith.gitlab.io/frotz/) **ZMachine interpreter** that supports playing classic text games like [Zork](https://en.wikipedia.org/wiki/Zork). The firmware provides a Python-based **Telnet client**, **FTP server**, a TUI based **File Manager**, **IRC Client**, **RSS Reader** and  **Network Manager** demonstrating how the terminal engine can be easily extended.
 
@@ -23,13 +23,13 @@ This project is optimized for the **LilyGO T-Deck**, leveraging MicroPython to i
 
 | Component | Specification | Driver / Status |
 | :--- | :--- | :--- |
-| **Memory** | 8MB PSRAM / 16MB Flash | Enabled for Large Buffer Handling |
-| **SD Card** | SPI | Experimental |
-| **Display** | 2.4" ST7789 LCD (320x240) | Optimized SPI bus (Full Color) |
-| **Keyboard** | LILYGO Keyboard | Mapped I2C Interface |
-| **Trackball** | LILYGO Trackball | Mapped I2C Interface |
+| **Memory** | 8MB PSRAM / 16MB Flash | ✅ Enabled for Large Buffer Handling |
+| **Display** | 2.4" ST7789 LCD (320x240) | ✅ Optimized SPI bus (Full Color) |
+| **Keyboard** | LILYGO Keyboard | ✅ Mapped I2C Interface |
+| **Trackball** | LILYGO Trackball | ✅ Mapped I2C Interface |
+| **Speaker** | I2S | ✅ MP3/WAV Playback Support |
+| **SD Card** | SPI | ❌ Experimental |
 | **Microphone** | I2S, ES7210 ADC | todo |
-| **Speaker** | I2S | todo |
 | **Touchscreen** | GT911 | todo |
 | **LoRa Radio** | SX1262 | todo |
 
@@ -85,6 +85,7 @@ You can execute the following commands from the built-in shell:
 | `menu` | An interactive shortcut menu for commands |
 | `ms` | Opens the minesweeper clone |
 | `nm` | Starts the TUI Network Manager |
+| `play` | Audio player that supports WAV and MP3 |
 | `rss` | RSS Reader; connect to an http or https rss endpoint and retreives the titles |
 | `telnet` | Connects to a telnet server |
 | `vi` | Opens the vi port |
@@ -104,6 +105,9 @@ git clone https://github.com/8bitmcu/vtOS.git
 
 # Copy the T-Deck board definition into your micropython source directory:
 cp -r /path/to/vtOS/boards/LILYGO_T_DECK /path/to/micropython/ports/esp32/boards/
+
+# Copy idf_component.yml into micropython esp32 ports:
+cp /path/to/vtOS/modules/idf_component.yml /path/to/micropython/ports/esp32/main/
 
 # Initialize the ESP-IDF environment
 source $HOME/esp/esp-idf/export.sh

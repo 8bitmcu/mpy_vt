@@ -51,7 +51,6 @@ try:
             "CNN Top Stories": "http://rss.cnn.com/rss/cnn_topstories.rss",
             "NPR": "https://feeds.npr.org/1001/rss.xml",
             "Hacker News": "https://news.ycombinator.com/rss",
-            "The Verge": "https://www.theverge.com/rss/index.xml",
             "TechCrunch": "https://techcrunch.com/feed/",
             "Ars Technica": "https://feeds.arstechnica.com/arstechnica/index",
             "Hack A Day": "https://hackaday.com/blog/feed/",

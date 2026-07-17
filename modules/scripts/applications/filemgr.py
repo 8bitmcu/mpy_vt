@@ -15,6 +15,8 @@ file_association = {
     "dat": "zm",
     "z3": "zm",
     "z5": "zm",
+    "mp3": "play",
+    "wav": "play",
 }
 
 def fmt_size(size):

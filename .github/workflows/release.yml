@@ -94,6 +94,8 @@ jobs:
         run: |
           export MPY_USER_DIR=$(pwd)/micropython
 
+          cp $GITHUB_WORKSPACE/vtOS/modules/idf_component.yml micropython/ports/esp32/main/idf_component.yml
+
           cd micropython/ports/esp32
           . $HOME/esp/esp-idf/export.sh
           export MPY_USER_MODULES_DIR="$GITHUB_WORKSPACE/vtOS/modules"

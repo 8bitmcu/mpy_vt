@@ -57,6 +57,7 @@ class Environment:
         self.term = None
         self.sts = None
         self.shell = None
+        self.audio = None
         self.update_font(font)
 
     def update_font(self, font_name):
