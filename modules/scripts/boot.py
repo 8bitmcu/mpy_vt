@@ -43,8 +43,13 @@ try:
                 f" \n"
                 f"Happy hacking!")
 
+    try:
+        os.mkdir("menu")
+    except:
+        pass
+
     import json
-    with open(".rss.json", "x") as f:
+    with open("menu/.rss.json", "x") as f:
         json.dump({
             "BBC News World": "http://feeds.bbci.co.uk/news/world/rss.xml",
             "The New York Times": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
@@ -60,7 +65,7 @@ try:
             "Quanta Magazine": "https://api.quantamagazine.org/feed/",
     }, f)
 
-    with open(".irc.json", "x") as f:
+    with open("menu/.irc.json", "x") as f:
         json.dump({
             "Libera.Chat": "irc.libera.chat 6667",
             "OFTC": "irc.oftc.net 6667",
@@ -72,7 +77,7 @@ try:
             "IRCnet": "irc.ircnet.com 6667"
     }, f)
 
-    with open(".telnet.json", "x") as f:
+    with open("menu/.telnet.json", "x") as f:
         json.dump({
             "Telehack": "telehack.com",
             "RetroCampus": "bbs.retrocampus.com"

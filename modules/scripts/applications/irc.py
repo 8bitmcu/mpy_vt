@@ -239,6 +239,7 @@ def main(env, args):
                 elif char in ('\x08', '\x7f'):
                     chat_input.backspace()
                 elif char == '\x1b':
+                    # TODO: does not exit cleanly
                     client.disconnect()
                     env.tui.exit_altscreen()
                     env.tui.cursor_show()

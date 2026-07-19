@@ -281,17 +281,43 @@ class FTP_VFS:
         self._stat_cache = {}
         self.stream_threshold = stream_threshold
 
-    def _send_cmd(self, cmd, expected_code=None):
-        """ Sends a command and returns the string response """
-        self.sock.send((cmd + "\r\n").encode('utf-8'))
-        resp = self.sock_file.readline().decode('utf-8').strip()
+    def _send_cmd(self, cmd, expected_code=None, _retry=True):
+        """ Sends a command and returns the string response.
 
-        while '-' in resp[:4]: 
-            resp = self.sock_file.readline().decode('utf-8').strip()
+        If the control connection has actually dropped -- a socket
+        error, the peer closing it, or a 421 ("Service not available,
+        closing control connection", which servers commonly send for an
+        idle timeout just before hanging up) -- transparently reconnects
+        and retries the command once. Any other FTP error response (the
+        server replied, just not with expected_code) is NOT treated as a
+        dropped connection -- retrying that wouldn't help and would mask
+        a real error like a genuine 550 File Not Found, so it's raised
+        immediately instead. """
+        try:
+            self.sock.send((cmd + "\r\n").encode('utf-8'))
+            resp = self.sock_file.readline()
+            if not resp:
+                raise OSError("connection closed by server")
+            resp = resp.decode('utf-8').strip()
+            while '-' in resp[:4]:
+                resp = self.sock_file.readline().decode('utf-8').strip()
+        except OSError as e:
+            return self._reconnect_and_retry(cmd, expected_code, _retry,
+                                             f"connection lost ({e})")
+
+        if resp.startswith("421") and expected_code != 421:
+            return self._reconnect_and_retry(cmd, expected_code, _retry,
+                                             f"server closed connection ({resp})")
 
         if expected_code and not resp.startswith(str(expected_code)):
             raise OSError(f"FTP Error: Expected {expected_code}, got {resp}")
         return resp
+
+    def _reconnect_and_retry(self, cmd, expected_code, _retry, reason):
+        if not _retry or self.sock is None:
+            raise OSError(reason)
+        self._connect()
+        return self._send_cmd(cmd, expected_code, _retry=False)
 
     def _pasv(self):
         """ Requests a passive data connection and returns a connected socket """
@@ -308,7 +334,19 @@ class FTP_VFS:
         data_sock.connect(addr)
         return data_sock
 
-    def mount(self, readonly, mkfs):
+    def _connect(self):
+        """ (Re)establishes the control connection and logs in. Used both
+        for the initial mount() and to transparently recover a dropped
+        connection from _send_cmd(). Internal commands here use
+        _retry=False: if login fails right after a fresh connect, that's
+        a real auth/protocol problem, not a stale-connection issue worth
+        reconnecting-and-retrying again over. """
+        if self.sock is not None:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+
         addr = socket.getaddrinfo(self.host, self.port)[0][-1]
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect(addr)
@@ -318,11 +356,18 @@ class FTP_VFS:
         while '-' in resp[:4]:
             resp = self.sock_file.readline().decode('utf-8')
 
-        self._send_cmd(f"USER {self.user}", 331)
-        self._send_cmd(f"PASS {self.password}", 230)
+        self._send_cmd(f"USER {self.user}", 331, _retry=False)
+        self._send_cmd(f"PASS {self.password}", 230, _retry=False)
         # Binary mode: essential for correct byte-for-byte transfer of
         # non-text files, and SIZE/REST are only well-defined in this mode.
-        self._send_cmd("TYPE I", 200)
+        self._send_cmd("TYPE I", 200, _retry=False)
+
+        # A reconnect resets the server's idea of our working directory.
+        if self.cwd not in ("", "/"):
+            self._send_cmd(f"CWD {self.cwd}", 250, _retry=False)
+
+    def mount(self, readonly, mkfs):
+        self._connect()
 
     def umount(self):
         try:

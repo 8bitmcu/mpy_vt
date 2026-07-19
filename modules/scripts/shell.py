@@ -7,6 +7,7 @@
 import sys
 import json
 import board
+import time
 
 def _app(module, tui=False, audio=False, rec=False, radio=False):
     def _run(env, *args):
@@ -112,7 +113,7 @@ class Shell:
         self.register("fm",          _app("applications.filemgr",    tui=True))
         self.register("irc",         _app("applications.irc",        tui=True))
         self.register("rss",         _app("applications.rss",        tui=True))
-        self.register("fc",          _app("applications.fontconfig", tui=True))
+        self.register("fc",          _app("applications.fontcfg",    tui=True))
         self.register("play",        _app("applications.player",     tui=True, audio=True))
         self.register("lorachat",    _app("applications.lorachat",   tui=True, radio=True))
         self.register("rec",         _app("applications.rec",        rec=True))

@@ -313,6 +313,48 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
   }
 }
 
+// Fills the pixel band below the last text row, when the font's height
+// doesn't evenly divide the usable area (term.top_offset + term.row *
+// f_height falls short of the physical screen height). xdrawline()
+// already handles the analogous right-margin remainder by stretching
+// and padding each row's own draw, since every row goes through it
+// anyway -- but this band isn't a text row at all, so it's never
+// otherwise touched by normal drawing and keeps showing whatever was on
+// screen before the current font/layout was set. Call once after a
+// layout change (tnew()/tresize()); it's static until the next one.
+void fill_bottom_margin(void) {
+  if (!current_vt_obj)
+    return;
+
+  vt_VT_obj_t *vt = current_vt_obj;
+  st7789_ST7789_obj_t *display = vt->display_drv;
+  if (!display || !display->i2c_buffer)
+    return;
+
+  mp_obj_dict_t *dict = MP_OBJ_TO_PTR(vt->font->globals);
+  const uint8_t f_height =
+      mp_obj_get_int(mp_obj_dict_get(dict, MP_OBJ_NEW_QSTR(MP_QSTR_HEIGHT)));
+
+  int content_bottom = term.top_offset + (term.row * f_height);
+  if (content_bottom >= display->height)
+    return;
+
+  uint16_t leftover = display->height - content_bottom;
+  uint16_t bg = map_st_color(defaultbg);
+  uint32_t n_pixels = (uint32_t)display->width * leftover;
+
+  for (uint32_t i = 0; i < n_pixels; i++) {
+    display->i2c_buffer[i] = bg;
+  }
+
+  set_window(display, 0, content_bottom, display->width - 1,
+            display->height - 1);
+  mp_hal_pin_write(display->dc, 1);
+  mp_hal_pin_write(display->cs, 0);
+  write_spi(display->spi_obj, (uint8_t *)display->i2c_buffer, n_pixels * 2);
+  mp_hal_pin_write(display->cs, 1);
+}
+
 void repaint_bars(void) {
   if (!current_vt_obj || term.col <= 0)
     return;

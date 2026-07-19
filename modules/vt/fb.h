@@ -62,5 +62,6 @@ extern unsigned int defaultcs;
 
 void draw_bar_ansi(const char *text, size_t len, int bar_type);
 void repaint_bars(void);
+void fill_bottom_margin(void);
 
 #endif /* FB_H */

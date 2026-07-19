@@ -30,7 +30,7 @@ def main(env, args):
     tui.cursor_hide()
 
     app = {}
-    app_file = f"/flash/.{app_name}.json"
+    app_file = f"/flash/menu/.{app_name}.json"
 
     try:
         with open(app_file, "r") as f:

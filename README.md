@@ -184,23 +184,6 @@ make repl PORT=/dev/ttyUSB0
 ```
 
 
-## 🧩 C Modules
-
-This project is composed of the following C modules:
-
-| Module | Role | Stream Type | Description |
-| :---   | :--- | :--- | :--- |
-| `st7789` | Display Driver | N/A | Modified version of the standard driver. Exposes internal frame buffer pointers to vt for direct-memory access (DMA) rendering. |
-| `tdeck_kbd` | Input Driver | Readable | Low-level driver for the T-Deck I2C keyboard/trackball. Handles key scanning and interrupt flags. |
-| `tdeck_trk` | Motion Engine | Interrupts | Low-level driver for the T-Deck trackball. Uses GPIO interrupts to track relative motion (deltas) and supports edge-detection for short/long click durations. |
-| `tdeck_kvm` | Stream Glue | Read/Write | A composite Keyboard-Video-Mouse (trackball) object. It binds vt (Output) and tdeck_kbd (Input) into a single stream object compatible with os.dupterm. |
-| `vt` | Terminal Engine | Writable | The core emulator. Receives ANSI text, updates internal state, and renders changes to the st7789 display. |
-| `vttui` | User Interface | Read/Write | A simple to use curses-like text user interface library. |
-| `vi` | Text Editor | Read/Write | A C-integrated port of the classic `vi` editor. |
-| `xml` | Parsing Library | N/A | A C-port of the `yxml` library. |
-| `zm` | ZMachine Interpreter | Read/Write | A port of the `frotz` Zmachine interpreter. |
-
-
 ## ⚖️ License & Attribution
 
 This project's source code is licensed under the **MIT License**. However, if you compile the firmware with the optional `frotz` module enabled, the resulting compiled binary is distributed under the **GPLv2 License**.

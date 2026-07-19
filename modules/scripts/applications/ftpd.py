@@ -5,6 +5,8 @@
 #
 
 import os
+import sys
+import select
 import network
 import asyncio
 
@@ -316,6 +318,18 @@ async def serve_ftp(reader, writer, auth_user, auth_pass):
     conn = FTPConnection(reader, writer, client_ip, auth_user, auth_pass)
     await conn.run()
 
+async def watch_for_exit(loop):
+    """Watches stdin for 'q' or ESC and stops the event loop when pressed."""
+    while True:
+        r, _, _ = select.select([sys.stdin], [], [], 0)
+        if r:
+            char = sys.stdin.read(1)
+            if char in ('q', 'Q', '\x1b'):
+                print("\r\nStopping FTP server...")
+                loop.stop()
+                return
+        await asyncio.sleep_ms(100)
+
 def main(env, args):
     port = int(args[0]) if len(args) > 0 else 21
     auth_user = args[1] if len(args) > 1 else "admin"
@@ -327,7 +341,11 @@ def main(env, args):
     global SERVER_IP
     SERVER_IP = get_ip()
 
-    print(f"Starting FTP Server on {SERVER_IP}:{port}")
+    print(f"Starting FTP Server on {SERVER_IP}:{port}\nPress q or ESC to stop")
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(asyncio.start_server(factory, "0.0.0.0", port))
+    server = loop.run_until_complete(asyncio.start_server(factory, "0.0.0.0", port))
+    loop.create_task(watch_for_exit(loop))
     loop.run_forever()
+
+    server.close()
+    loop.run_until_complete(server.wait_closed())

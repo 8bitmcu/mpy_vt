@@ -8,13 +8,14 @@ import machine
 import time
 import network
 import gc
+import board
 
 class StatusBar:
 
     def __init__(self, terminal, width=40):
         self.term = terminal
         self.start_ticks = time.ticks_ms()
-        self.bat_pin = machine.ADC(machine.Pin(4))
+        self.bat_pin = machine.ADC(machine.Pin(board.BAT_ADC))
         self.bat_pin.atten(machine.ADC.ATTN_11DB)
         self.wlan = network.WLAN(network.STA_IF)
 
@@ -36,7 +37,7 @@ class StatusBar:
         pad_len = width - len(left) - len(right)
         if pad_len < 0:
             pad_len = 0
-            
+
         mid_pad = b" " * pad_len
         template = left + mid_pad + right
 
@@ -71,13 +72,13 @@ class StatusBar:
 
         # 1. Memory Calculation
         mem_free = gc.mem_free()
-        
+
         if mem_free >= 1048576: # 1024 * 1024
             mem_scaled = (mem_free * 10) // 1048576 
             val = mem_scaled // 10    
             dec = mem_scaled % 10     
             unit = 77                 # ASCII 'M'
-            
+
             self.buffer[self.off_mem]     = 48 + (val // 10) if val >= 10 else 32
             self.buffer[self.off_mem + 1] = 48 + (val % 10)
             self.buffer[self.off_mem + 2] = 46 
@@ -88,7 +89,7 @@ class StatusBar:
             mh = (mem_k // 100) % 10
             mt = (mem_k // 10) % 10
             mu = mem_k % 10
-            
+
             self.buffer[self.off_mem]     = 48 + mh if mh > 0 else 32
             self.buffer[self.off_mem + 1] = 48 + mt if (mt > 0 or mh > 0) else 32
             self.buffer[self.off_mem + 2] = 48 + mu
@@ -118,3 +119,4 @@ class StatusBar:
 
         # Push to Terminal
         self.term.top_bar(self.buffer)
+

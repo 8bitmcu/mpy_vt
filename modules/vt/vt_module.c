@@ -106,6 +106,12 @@ static mp_obj_t vt_vt_top_offset(mp_obj_t self_in, mp_obj_t offset_obj) {
     term.dirty[i] = 1;
   }
 
+  // Called after update_layout()/tresize() on both initial boot and
+  // every runtime font change (see main.py's update_font()), so
+  // term.row is already current here -- this is the one place term.row
+  // and term.top_offset are both guaranteed fresh together.
+  fill_bottom_margin();
+
   return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(vt_vt_top_offset_obj, vt_vt_top_offset);
