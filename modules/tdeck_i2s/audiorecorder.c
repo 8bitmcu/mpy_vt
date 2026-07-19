@@ -181,13 +181,32 @@ static int audiorecorder_drain_internal(audiorecorder_obj_t *self) {
     return 0;
   }
 
-  int errcode = 0;
+  // A stream write() is allowed to write fewer bytes than requested
+  // without that being an error (errcode stays 0) -- a real possibility
+  // for VFS/SD-card writes (cluster boundaries, write-cache pressure,
+  // etc). n bytes are already irreversibly gone from the ring buffer by
+  // this point, so a short write that isn't retried here is a silent gap
+  // in the recorded audio -- which is a click, not a stall, so it never
+  // shows up in rb_full_stalls/i2s_error_count. Loop until the full
+  // chunk is flushed or a genuine error occurs.
   const mp_stream_p_t *stream_p =
       mp_get_stream_raise(self->file_obj, MP_STREAM_OP_WRITE);
-  mp_uint_t written = stream_p->write(self->file_obj, chunk, n, &errcode);
-  if (errcode != 0 || written == MP_STREAM_ERROR) {
-    self->last_error = -errcode;
-    return -1;
+  size_t total_written = 0;
+  while (total_written < n) {
+    int errcode = 0;
+    mp_uint_t written = stream_p->write(
+        self->file_obj, chunk + total_written, n - total_written, &errcode);
+    if (errcode != 0 || written == MP_STREAM_ERROR) {
+      self->last_error = -errcode;
+      return -1;
+    }
+    if (written == 0) {
+      // No error reported, but no progress either -- treat as a failure
+      // rather than spin forever.
+      self->last_error = -MP_EIO;
+      return -1;
+    }
+    total_written += written;
   }
   return 1;
 }
@@ -320,11 +339,12 @@ static void audio_record_task(void *arg) {
       size_t n = rb_write(&self->rb, chunk + written, bytes_read - written);
       written += n;
       if (n == 0) {
-        // Ring buffer's full -- ask the MicroPython thread to drain it,
-        // and give it a moment to do so. Each iteration through here is
-        // 5ms we're *not* calling i2s_channel_read(): the I2S peripheral
-        // keeps capturing into its own hardware DMA ring regardless, and
-        // if this stall runs long enough relative to that DMA buffer's
+        // Ring buffer's full -- give the MicroPython thread a moment to
+        // drain it (already requested below, every iteration, not just
+        // here -- see that comment). Each trip through here is 5ms we're
+        // *not* calling i2s_channel_read(): the I2S peripheral keeps
+        // capturing into its own hardware DMA ring regardless, and if
+        // this stall runs long enough relative to that DMA buffer's
         // size, samples get silently dropped/overwritten at the hardware
         // level -- which sounds exactly like clicks/crackling laid over
         // otherwise-fine audio, not analog noise. Logged (throttled) so
@@ -337,11 +357,20 @@ static void audio_record_task(void *arg) {
                    "may be falling behind capture rate",
                    (unsigned)self->rb_full_stalls);
         }
-        audiorecorder_request_drain(self);
         vTaskDelay(pdMS_TO_TICKS(5));
       }
     }
     self->total_bytes += (uint32_t)written;
+
+    // Request a drain every iteration, not just when the ring buffer is
+    // already full. audiorecorder_request_drain() no-ops if a drain is
+    // already pending (see drain_pending), so this is cheap -- but
+    // requesting it reactively-only (the previous behavior) meant the
+    // VFS/SD-card write never started until backpressure had *already*
+    // hit, which is what was producing the rb_full_stalls climbing
+    // throughout every recording. Requesting it continuously lets the
+    // MicroPython thread keep the ring buffer drained proactively.
+    audiorecorder_request_drain(self);
 
     if (self->max_bytes > 0 && self->total_bytes >= self->max_bytes) {
       break; // hit the optional record(..., seconds=N) limit
@@ -408,9 +437,18 @@ static mp_obj_t audiorecorder_make_new(const mp_obj_type_t *type, size_t n_args,
       {MP_QSTR_mic_gain,
        MP_ARG_KW_ONLY | MP_ARG_INT,
        {.u_int = ES7210_MIC_GAIN_0DB}},
+      // 2.87V, not the mid-range 2.45V this defaulted to previously:
+      // LilyGO's own Arduino reference for this exact board (its vendored
+      // lib/es7210, a different driver than this espressif/es7210
+      // component but the same chip/hardware) writes 0x70 to both
+      // MIC12_BIAS_REG41 and MIC34_BIAS_REG42, which is
+      // ES7210_MIC_BIAS_2V87. Under-biasing the mic reduces headroom and
+      // raises the noise floor -- this is a closer match to persistent
+      // background noise than a gain setting is, since it's independent
+      // of the PGA/ADC gain stage entirely.
       {MP_QSTR_mic_bias,
        MP_ARG_KW_ONLY | MP_ARG_INT,
-       {.u_int = ES7210_MIC_BIAS_2V45}},
+       {.u_int = ES7210_MIC_BIAS_2V87}},
       // Bigger than audioplayer.c's TX defaults on purpose: unlike
       // playback (which can just re-request data), a capture stall here
       // means the hardware DMA ring overflows and silently drops

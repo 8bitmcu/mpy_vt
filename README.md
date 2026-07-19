@@ -25,11 +25,11 @@ This project is optimized for the **LilyGO T-Deck**, leveraging MicroPython to i
 | :--- | :--- | :--- |
 | **Memory** | 8MB PSRAM / 16MB Flash | ✅ Enabled for Large Buffer Handling |
 | **Display** | 2.4" ST7789 LCD (320x240) | ✅ Optimized SPI bus (Full Color) |
-| **LoRa Radio** | SX1262 | ✅ Hard Coded frequencies |
+| **LoRa Radio** | SX1262 | ✅ Own Configuration Utility |
 | **Keyboard** | LILYGO Keyboard | ✅ Mapped I2C Interface |
 | **Trackball** | LILYGO Trackball | ✅ Mapped I2C Interface |
 | **Speaker** | I2S | ✅ MP3/WAV Playback Support |
-| **Microphone** | I2S, ES7210 ADC | ❌ Experimental |
+| **Microphone** | I2S, ES7210 ADC | ✅ WAV Recorder Support |
 | **SD Card** | SPI | ❌ Experimental |
 | **Touchscreen** | GT911 | todo |
 
@@ -82,10 +82,13 @@ You can execute the following commands from the built-in shell:
 | `ftp` | FTP Client that mounts it's content as a VFS |
 | `ftpd` | Launches a FTP Server on `/` with user `admin` and pwd `admin` |
 | `irc` | Connects to an IRC channel given a server, port, nickname and channel |
+| `loracfg` | Utility to configure LoRa frequency and power |
+| `lorachat` | A basic chatroom based on the LoRa radio |
 | `menu` | An interactive shortcut menu for commands |
 | `ms` | Opens the minesweeper clone |
 | `nm` | Starts the TUI Network Manager |
 | `play` | Audio player that supports WAV and MP3 |
+| `rec` | Audio recorder |
 | `rss` | RSS Reader; connect to an http or https rss endpoint and retreives the titles |
 | `telnet` | Connects to a telnet server |
 | `vi` | Opens the vi port |

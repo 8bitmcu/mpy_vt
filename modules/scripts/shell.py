@@ -6,8 +6,9 @@
 
 import sys
 import json
+import board
 
-def _app(module, tui=False, audio=False):
+def _app(module, tui=False, audio=False, rec=False, radio=False):
     def _run(env, *args):
         if tui:
             if not hasattr(env, 'tui') or env.tui is None:
@@ -16,7 +17,60 @@ def _app(module, tui=False, audio=False):
         if audio:
             if not hasattr(env, 'audio') or env.audio is None:
                 import audioplayer
-                env.audio = audioplayer.AudioPlayer(bck=7, ws=5, dout=6)
+                env.audio = audioplayer.AudioPlayer(bck=board.I2S_BCK,
+                                                    ws=board.I2S_WS,
+                                                    dout=board.I2S_DOUT)
+        if rec:
+            if not hasattr(env, 'rec') or env.rec is None:
+                import audioplayer
+                env.rec = audioplayer.AudioRecorder(mclk=board.ES7210_MCLK,
+                                                    bck=board.ES7210_SCK,
+                                                    ws=board.ES7210_LRCK,
+                                                    din=board.ES7210_DIN,
+                                                    i2c_sda=board.I2C_SDA,
+                                                    i2c_scl=board.I2C_SCL,
+                                                    i2s_num=1,
+                                                    channels=1,
+                                                    mic_gain=9,
+                                                    i2c_shared=True)
+
+        if radio:
+            if not hasattr(env, 'radio') or env.radio is None:
+                import lora
+                lr = lora.LoRa(cs=board.RADIO_CS,
+                               dio1=board.RADIO_DIO1,
+                               rst=board.RADIO_RST,
+                               busy=board.RADIO_BUSY,
+                               sck=board.SPI_SCK,
+                               miso=board.SPI_MISO,
+                               mosi=board.SPI_MOSI)
+
+                try:
+                    with open("/flash/.radio.json", "r") as f:
+                        config = json.load(f)
+                except Exception as e:
+                    print("Failed to load radio config. Have you run loracfg?")
+                    return
+
+                try:
+                    lr.begin(freq=int(config["freq"]),
+                             bw=board.RADIO_BANDWIDTH,
+                             sf=board.RADIO_SF,
+                             cr=board.RADIO_CR,
+                             sync_word=0x12,
+                             power=int(config["pwr"]))
+                except Exception as e:
+                    print(f"Radio initialization failed: {e}")
+                    return
+
+                errors = lr.get_device_errors()
+                if errors != 0x0000:
+                    print(f"SX1262 device errors: 0x{errors:04X}")
+                    return
+
+                env.radio = lr
+
+
         app_module = __import__(module, None, None, [''])
         app_module.main(env, args)
     return _run
@@ -48,14 +102,11 @@ class Shell:
         self.alias_file = "/flash/.favs.json"
         self._load_aliases()
 
-        # temp entries
-        self.register("rec",         _app("rec"))
-        self.register("radio",       _app("radio"))
-
         self.register("ftp",         _app("applications.ftp"))
         self.register("ftpd",        _app("applications.ftpd"))
         self.register("telnet",      _app("applications.telnet"))
         self.register("ms",          _app("applications.minesweeper"))
+        self.register("loracfg",     _app("applications.loracfg"))
         self.register("menu",        _app("applications.menu",       tui=True))
         self.register("nm",          _app("applications.netmgr",     tui=True))
         self.register("fm",          _app("applications.filemgr",    tui=True))
@@ -63,6 +114,8 @@ class Shell:
         self.register("rss",         _app("applications.rss",        tui=True))
         self.register("fc",          _app("applications.fontconfig", tui=True))
         self.register("play",        _app("applications.player",     tui=True, audio=True))
+        self.register("lorachat",    _app("applications.lorachat",   tui=True, radio=True))
+        self.register("rec",         _app("applications.rec",        rec=True))
         self.register("vi",          _app("vi"))
         self.register("zm",          _app("zm"))
 
