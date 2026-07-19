@@ -7,7 +7,6 @@
 import os
 import sys
 import time
-import audioplayer
 
 def fmt_size(size):
     if size < 1024:
@@ -39,12 +38,11 @@ def main(env, args):
     BOLD = "\x1b[1m"
     CYAN = "\x1b[38;5;45m"
 
-    if not file:
-        print("Usage: play <file>")
-        return
-
     env.audio.volume(vol)
     env.audio.play(file)
+
+    # works but is slow...
+    #duration = env.audio.duration(file)
 
     time.sleep_ms(100)
 
@@ -59,14 +57,14 @@ def main(env, args):
 
             info = env.audio.tags()
             blk = win.make_block(f"{BOLD}file: {CLR}{CYAN}{file}{CLR}\n"
-                                 f"{fmt_size(file_sz)} - {info["bitrate"]}kbps\n"
+                                 f"{fmt_size(file_sz)}\n"
                                  f"\n"
                                  f"{BOLD}{info["title"]}{CLR}\n"
                                  f"{info["artist"]}\n"
                                  f"\n"
-                                 f"Duration {info["duration"]}\n"
-                                 f"Volume {vol}%",
-                                 1, 0,
+                                 #f"Duration {duration}\n"
+                                 f"Volume: {vol}%",
+                                 0, 0,
                                  fg=252, bg=18,
                                  wrap=True)
 
@@ -84,13 +82,15 @@ def main(env, args):
 
                 char = sys.stdin.read(1)
                 if char == "w":
-                    vol = vol + 10
-                    env.audio.volume(vol)
-                    break
+                    if vol + 10 <= 100:
+                        vol = vol + 10
+                        env.audio.volume(vol)
+                        break
                 elif char == "s":
-                    vol = vol - 10
-                    env.audio.volume(vol)
-                    break
+                    if vol - 10 >= 0:
+                        vol = vol - 10
+                        env.audio.volume(vol)
+                        break
                 elif char == "p":
                     if env.audio.is_paused():
                         env.audio.resume()

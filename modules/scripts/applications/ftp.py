@@ -1,5 +1,6 @@
 #
 # MicroPython FTP Client that mounts it's content as a VFS
+# supports streaming to some extent
 # Copyright (c) 2026 8bitmcu
 # License: MIT
 #
@@ -24,23 +25,45 @@ _SEEK_STRUCT = {
 }
 
 class FTPFile(io.IOBase):
-    """ A file-like object backed by an in-memory buffer, implementing
-    MicroPython's native stream protocol (io.IOBase) rather than just
-    plain Python read()/write() methods.
+    """ A file-like object implementing MicroPython's native stream
+    protocol (io.IOBase), backed by either a local in-memory buffer or a
+    live FTP data connection, depending on file size:
 
-    Read-mode files are fully downloaded up front, so all of this just
-    operates on local bytes; no mid-transfer FTP juggling needed.
-    Write-mode files buffer everything and upload in one STOR on close(). """
-    def __init__(self, ftp, mode, file_path, data=b''):
+    - Read mode: if the file's size is known and under STREAM_THRESHOLD,
+      it's downloaded fully up front (buffered) so reads/seeks are just
+      local indexing. Otherwise (large or unknown size) it streams
+      directly from the data connection; seeking re-opens the connection
+      with REST at the target offset, since FTP data connections can't
+      be seeked in place.
+    - Write mode: starts buffered. If the buffer crosses STREAM_THRESHOLD,
+      it's "promoted" to a live STOR connection - the buffered bytes are
+      flushed and further writes stream directly. Once streaming, seeking
+      is no longer possible (STOR doesn't support arbitrary-offset writes). """
+
+    STREAM_THRESHOLD = 1024 * 1024  # 1MB
+
+    def __init__(self, ftp, mode, file_path, size=None):
         self.ftp = ftp
         self.mode = mode
         self.file_path = file_path
         self.pos = 0
         self._closed = False
+        self._streaming = False
+        self._eof = False
+        self.data_sock = None
+        self.buf = None
+
+        threshold = getattr(ftp, 'stream_threshold', self.STREAM_THRESHOLD)
+
         if 'r' in mode:
-            self.buf = data
-        else:
+            if size is None or size >= threshold:
+                self._start_read_stream(0)
+            else:
+                self.buf = self.ftp._retr_all(file_path)
+        elif 'w' in mode:
             self.buf = bytearray()
+        else:
+            raise ValueError(f"Unsupported mode: {mode}")
 
     def __enter__(self):
         return self
@@ -49,9 +72,79 @@ class FTPFile(io.IOBase):
         self.close()
         return False
 
+    # -- streaming plumbing ------------------------------------------------
+
+    def _start_read_stream(self, offset):
+        """ Opens (or re-opens at `offset`) a passive RETR connection. """
+        self.data_sock = self.ftp._pasv()
+        if offset > 0:
+            self.ftp._send_cmd(f"REST {offset}", 350)
+        self.ftp._send_cmd(f"RETR {self.file_path}", 150)
+        self._streaming = True
+        self.pos = offset
+        self._eof = False
+
+    def _promote_write_to_stream(self):
+        """ Switches a buffered write-mode file to a live STOR connection
+        once its size crosses the threshold, flushing what's buffered. """
+        self.data_sock = self.ftp._pasv()
+        self.ftp._send_cmd(f"STOR {self.file_path}", 150)
+        if self.buf:
+            self.data_sock.write(bytes(self.buf))
+        self.buf = None
+        self._streaming = True
+
+    def _abort_stream(self):
+        """ Cleanly aborts an in-progress data transfer per RFC 959 so the
+        control connection stays in sync for the next command. """
+        try:
+            self.ftp.sock.send(b"ABOR\r\n")
+        except:
+            pass
+        try:
+            self.data_sock.close()
+        except:
+            pass
+        try:
+            for _ in range(2):
+                resp = self.ftp.sock_file.readline()
+                if not resp or resp[:3] in (b'226', b'225'):
+                    break
+        except:
+            pass
+
+    def _finish_stream(self):
+        """ Closes out a completed streaming transfer (STOR or a RETR read
+        to EOF), consuming the final 226 response. """
+        try:
+            self.data_sock.close()
+        except:
+            pass
+        try:
+            resp = self.ftp.sock_file.readline()
+            if not resp.startswith(b'226'):
+                print("FTP Warning: Expected 226 after transfer, got:", resp)
+        except:
+            pass
+
+    # -- stream protocol -----------------------------------------------
+
     def readinto(self, buf):
         if 'r' not in self.mode:
             return -1
+        if self._streaming:
+            try:
+                n = self.data_sock.readinto(buf)
+            except AttributeError:
+                data = self.data_sock.read(len(buf))
+                n = len(data) if data else 0
+                if n:
+                    buf[:n] = data
+            if not n:
+                self._eof = True
+                return 0
+            self.pos += n
+            return n
         n = min(len(buf), len(self.buf) - self.pos)
         if n <= 0:
             return 0
@@ -62,6 +155,13 @@ class FTPFile(io.IOBase):
     def read(self, size=-1):
         if 'r' not in self.mode:
             raise OSError("file not opened for reading")
+        if self._streaming:
+            data = self.data_sock.read() if size == -1 else self.data_sock.read(size)
+            if not data:
+                self._eof = True
+            else:
+                self.pos += len(data)
+            return data
         if size == -1 or self.pos + size > len(self.buf):
             data = self.buf[self.pos:]
         else:
@@ -74,8 +174,17 @@ class FTPFile(io.IOBase):
             return -1
         if type(data) == str:
             data = data.encode('utf-8')
-        # Extend the buffer if writing past the current end, then splice
-        # the new bytes in at pos - supports both append and overwrite.
+
+        threshold = getattr(self.ftp, 'stream_threshold', self.STREAM_THRESHOLD)
+        if not self._streaming and len(self.buf) + len(data) >= threshold:
+            self._promote_write_to_stream()
+
+        if self._streaming:
+            n = self.data_sock.write(data)
+            if n:
+                self.pos += n
+            return n
+
         end = self.pos + len(data)
         if end > len(self.buf):
             self.buf.extend(bytes(end - len(self.buf)))
@@ -89,16 +198,41 @@ class FTPFile(io.IOBase):
     def seek(self, offset, whence=0):
         """ Python-level convenience seek. Native callers don't hit this,
         they go through ioctl() below instead. """
+        if 'w' in self.mode:
+            if self._streaming:
+                raise OSError("seek not supported once a large write has started streaming")
+            if whence == 0:
+                target = offset
+            elif whence == 1:
+                target = self.pos + offset
+            elif whence == 2:
+                target = len(self.buf) + offset
+            else:
+                raise ValueError("invalid whence")
+            if target < 0:
+                raise ValueError("negative seek position")
+            self.pos = target
+            return self.pos
+
         if whence == 0:
             target = offset
         elif whence == 1:
             target = self.pos + offset
         elif whence == 2:
-            target = len(self.buf) + offset
+            size = self.ftp._get_size(self.file_path) if self._streaming else len(self.buf)
+            target = size + offset
         else:
             raise ValueError("invalid whence")
         if target < 0:
             raise ValueError("negative seek position")
+
+        if self._streaming:
+            if target == self.pos and not self._eof:
+                return self.pos
+            self._abort_stream()
+            self._start_read_stream(target)
+            return self.pos
+
         self.pos = target
         return self.pos
 
@@ -125,10 +259,18 @@ class FTPFile(io.IOBase):
             return
         self._closed = True
         if 'w' in self.mode:
-            self.ftp._store_all(self.file_path, self.buf)
+            if self._streaming:
+                self._finish_stream()
+            else:
+                self.ftp._store_all(self.file_path, self.buf)
+        elif self._streaming:
+            if not self._eof:
+                self._abort_stream()
+            else:
+                self._finish_stream()
 
 class FTP_VFS:
-    def __init__(self, host, port=21, user="anonymous", password=""):
+    def __init__(self, host, port=21, user="anonymous", password="", stream_threshold=1024 * 1024):
         self.host = host
         self.port = port
         self.user = user
@@ -137,6 +279,7 @@ class FTP_VFS:
         self.sock = None
         self.sock_file = None
         self._stat_cache = {}
+        self.stream_threshold = stream_threshold
 
     def _send_cmd(self, cmd, expected_code=None):
         """ Sends a command and returns the string response """
@@ -222,7 +365,7 @@ class FTP_VFS:
 
             clean_path = "" if path == "." else path
             cache_key = f"{clean_path}/{name}".strip("/")
-            self._stat_cache[cache_key] = file_type
+            self._stat_cache[cache_key] = (file_type, size)
 
             yield (name, file_type, 0, size)
 
@@ -231,12 +374,29 @@ class FTP_VFS:
 
     def open(self, file_path, mode):
         if 'r' in mode:
-            data = self._retr_all(file_path)
-            return FTPFile(self, mode, file_path, data=data)
+            size = self._lookup_size(file_path)
+            return FTPFile(self, mode, file_path, size=size)
         elif 'w' in mode:
             return FTPFile(self, mode, file_path)
         else:
             raise ValueError(f"Unsupported mode: {mode}")
+
+    def _lookup_size(self, file_path):
+        """ Returns the file's size if known (from a prior ilistdir(), or
+        via the FTP SIZE command), else None if it can't be determined -
+        in which case FTPFile treats it as "unknown, assume large". """
+        clean_path = file_path.strip("/")
+        if clean_path in self._stat_cache:
+            _, size = self._stat_cache[clean_path]
+            return size
+        try:
+            return self._get_size(file_path)
+        except OSError:
+            return None
+
+    def _get_size(self, path):
+        resp = self._send_cmd(f"SIZE {path}", 213)
+        return int(resp[4:].strip())
 
     def _retr_all(self, file_path):
         """ Downloads a file fully into memory and returns it as bytes. """
@@ -284,8 +444,8 @@ class FTP_VFS:
 
         clean_path = path.strip("/")
         if clean_path in self._stat_cache:
-            mode = self._stat_cache[clean_path]
-            return (mode, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+            mode, size = self._stat_cache[clean_path]
+            return (mode, 0, 0, 0, 0, 0, size, 0, 0, 0)
 
         return (0x8000, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 

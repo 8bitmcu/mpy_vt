@@ -52,6 +52,8 @@
 
 #include "mp3dec.h" // from the esp-libhelix-mp3 component
 
+#include "ring_buf.h" // shared with audioplayer.c
+
 static const char *TAG = "audioplayer";
 
 // ---- tunables -------------------------------------------------------
@@ -66,104 +68,6 @@ static const char *TAG = "audioplayer";
 #define RING_BUF_SIZE (24 * 1024) // bytes of compressed mp3 data kept queued
 #define FEED_CHUNK_SIZE 2048      // bytes read from the VFS stream per feed
 #define FEED_PRIME_ROUNDS 8       // feed calls done synchronously by play()
-
-// ---- ring buffer --------------------------------------------------------
-//
-// Single-producer (MicroPython thread, via feed()), single-consumer
-// (decode task) byte ring buffer. All access goes through rb->lock, so
-// it's safe to call rb_write() and rb_read() from different tasks
-// concurrently.
-
-typedef struct {
-  uint8_t *data;
-  size_t size;
-  volatile size_t head;  // next write index
-  volatile size_t tail;  // next read index
-  volatile size_t count; // bytes currently queued
-  volatile bool eof;     // producer has no more data to add, ever
-  SemaphoreHandle_t lock;
-} ring_buf_t;
-
-static bool rb_init(ring_buf_t *rb, size_t size) {
-  memset(rb, 0, sizeof(*rb));
-  rb->data = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (rb->data == NULL) {
-    rb->data = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-  }
-  rb->lock = xSemaphoreCreateMutex();
-  rb->size = size;
-  return rb->data != NULL && rb->lock != NULL;
-}
-
-static void rb_deinit(ring_buf_t *rb) {
-  if (rb->lock) {
-    vSemaphoreDelete(rb->lock);
-    rb->lock = NULL;
-  }
-  if (rb->data) {
-    free(rb->data);
-    rb->data = NULL;
-  }
-}
-
-static void rb_reset(ring_buf_t *rb) {
-  xSemaphoreTake(rb->lock, portMAX_DELAY);
-  rb->head = rb->tail = rb->count = 0;
-  rb->eof = false;
-  xSemaphoreGive(rb->lock);
-}
-
-// Producer side: queue up to len bytes, returns bytes actually queued
-// (less than len if the buffer is nearly full).
-static size_t rb_write(ring_buf_t *rb, const uint8_t *src, size_t len) {
-  xSemaphoreTake(rb->lock, portMAX_DELAY);
-  size_t space = rb->size - rb->count;
-  size_t n = (len < space) ? len : space;
-  size_t first = rb->size - rb->head;
-  if (first > n) {
-    first = n;
-  }
-  memcpy(rb->data + rb->head, src, first);
-  if (n > first) {
-    memcpy(rb->data, src + first, n - first);
-  }
-  rb->head = (rb->head + n) % rb->size;
-  rb->count += n;
-  xSemaphoreGive(rb->lock);
-  return n;
-}
-
-// Consumer side: pop up to len bytes, returns bytes actually read.
-static size_t rb_read(ring_buf_t *rb, uint8_t *dst, size_t len) {
-  xSemaphoreTake(rb->lock, portMAX_DELAY);
-  size_t n = (len < rb->count) ? len : rb->count;
-  size_t first = rb->size - rb->tail;
-  if (first > n) {
-    first = n;
-  }
-  memcpy(dst, rb->data + rb->tail, first);
-  if (n > first) {
-    memcpy(dst + first, rb->data, n - first);
-  }
-  rb->tail = (rb->tail + n) % rb->size;
-  rb->count -= n;
-  xSemaphoreGive(rb->lock);
-  return n;
-}
-
-static size_t rb_free_space(ring_buf_t *rb) {
-  xSemaphoreTake(rb->lock, portMAX_DELAY);
-  size_t n = rb->size - rb->count;
-  xSemaphoreGive(rb->lock);
-  return n;
-}
-
-static size_t rb_available(ring_buf_t *rb) {
-  xSemaphoreTake(rb->lock, portMAX_DELAY);
-  size_t n = rb->count;
-  xSemaphoreGive(rb->lock);
-  return n;
-}
 
 typedef struct _audioplayer_obj_t {
   mp_obj_base_t base;
@@ -181,7 +85,7 @@ typedef struct _audioplayer_obj_t {
   volatile int last_samprate;
   volatile int last_channels;
 
-  int volume_pct; // 0-100, applied to PCM before i2s_write
+  volatile int volume_pct; // 0-100, applied to PCM before i2s_write
 
   // VFS-backed source: only ever touched from the MicroPython thread
   // (play() / feed() / stop() / deinit()), never from audio_play_task().
@@ -201,6 +105,8 @@ typedef struct _audioplayer_obj_t {
 } audioplayer_obj_t;
 
 const mp_obj_type_t audioplayer_AudioPlayer_type;
+
+extern const mp_obj_type_t audiorecorder_AudioRecorder_type;
 
 // Basic WAV header parser. Looks for 'fmt ' and 'data' chunks.
 // Returns the byte offset to the start of the audio data, or -1 if invalid.
@@ -272,18 +178,222 @@ static void extract_id3_string(const uint8_t *data, uint32_t len, char *dest,
 
 // Scale 16-bit signed PCM samples in place by volume_pct/100, with clipping.
 static void apply_volume(int16_t *buf, int n_samples, int volume_pct) {
-  if (volume_pct == 100) {
+  if (volume_pct >= 100)
+    return;
+  if (volume_pct <= 0) {
+    memset(buf, 0, n_samples * sizeof(int16_t));
     return;
   }
+
+  // Pre-calculate scaling factor (Q15 fixed point)
+  // volume_pct is 0-100. We want to scale by (pct / 100).
+  // In Q15, 1.0 is 32768. So we scale by (volume_pct * 327)
+  int32_t scale = (volume_pct * 327);
+
   for (int i = 0; i < n_samples; i++) {
-    int32_t v = ((int32_t)buf[i] * volume_pct) / 100;
-    if (v > INT16_MAX) {
-      v = INT16_MAX;
-    } else if (v < INT16_MIN) {
-      v = INT16_MIN;
-    }
+    // Perform multiplication and shift instead of division
+    int32_t v = ((int32_t)buf[i] * scale) >> 15;
+
+    // Manual clamping (usually faster than conditional logic if compiler
+    // doesn't vectorize)
+    if (v > 32767)
+      v = 32767;
+    else if (v < -32768)
+      v = -32768;
+
     buf[i] = (int16_t)v;
   }
+}
+// ---- Duration probing ----------------------------------------------------
+//
+// None of this touches I2S, the decode task, or the ring buffer -- it's
+// plain synchronous VFS + CPU work run straight on the calling (Python)
+// thread, same as feed(). Three techniques, cheapest/least-reliable
+// first:
+//
+//   1. Xing/Info (LAME) or VBRI (Fraunhofer) header in the first frame,
+//      if the encoder wrote one: gives an exact total frame count
+//      directly, for the cost of reading a few KB.
+//   2. If neither is present: estimate from (file size / bitrate of the
+//      first frame), assuming constant bitrate. Wrong for true VBR
+//      files with no VBR header (rare, but it happens with older/basic
+//      encoders), right for everything else.
+//   3. exact=True, or as an automatic fallback if #2 has nothing to
+//      work with (e.g. free-format bitrate): walk every frame header
+//      in the file and sum samples. Exact regardless of encoding, but
+//      touches the whole file -- still much cheaper than actually
+//      decoding it, since this only parses headers (MP3GetNextFrameInfo
+//      does no Huffman decoding).
+
+#define DURATION_PROBE_BUF (8 * 1024)
+
+// Layer III frame length in bytes. Not something Helix's public API
+// exposes -- this is the standard MPEG formula, needed to step from one
+// frame header to the next without actually decoding the frame.
+static int mp3_frame_length(int bitrate, int samprate, bool mpeg1,
+                            int padding) {
+  if (bitrate <= 0 || samprate <= 0) {
+    return 0;
+  }
+  int coeff = mpeg1 ? 144 : 72;
+  return (coeff * bitrate) / samprate + padding;
+}
+
+// Looks for a Xing/Info or VBRI header inside the first frame at `frame`
+// (frame_avail bytes available from there). On success returns 0 and
+// fills *out_num_frames; returns -1 if neither is present/usable.
+static int find_vbr_header(const uint8_t *frame, size_t frame_avail,
+                           const MP3FrameInfo *info, uint32_t *out_num_frames) {
+  bool mono = (info->nChans == 1);
+  bool mpeg1 = (info->version == 0); // MPEGVersion: MPEG1=0, MPEG2=1, MPEG25=2
+  size_t side_info = mpeg1 ? (mono ? 17 : 32) : (mono ? 9 : 17);
+  size_t xing_off = 4 + side_info;
+
+  if (xing_off + 8 <= frame_avail &&
+      (memcmp(frame + xing_off, "Xing", 4) == 0 ||
+       memcmp(frame + xing_off, "Info", 4) == 0)) {
+    uint32_t flags = ((uint32_t)frame[xing_off + 4] << 24) |
+                     ((uint32_t)frame[xing_off + 5] << 16) |
+                     ((uint32_t)frame[xing_off + 6] << 8) | frame[xing_off + 7];
+    if ((flags & 0x1) && xing_off + 12 <= frame_avail) {
+      *out_num_frames = ((uint32_t)frame[xing_off + 8] << 24) |
+                        ((uint32_t)frame[xing_off + 9] << 16) |
+                        ((uint32_t)frame[xing_off + 10] << 8) |
+                        frame[xing_off + 11];
+      return 0;
+    }
+    return -1; // Xing/Info present but didn't encode a frame count
+  }
+
+  size_t vbri_off = 4 + 32; // VBRI is always here, version/channels aside
+  if (vbri_off + 18 <= frame_avail &&
+      memcmp(frame + vbri_off, "VBRI", 4) == 0) {
+    *out_num_frames = ((uint32_t)frame[vbri_off + 14] << 24) |
+                      ((uint32_t)frame[vbri_off + 15] << 16) |
+                      ((uint32_t)frame[vbri_off + 16] << 8) |
+                      frame[vbri_off + 17];
+    return 0;
+  }
+
+  return -1;
+}
+
+// Reads more data onto the end of buf[0..bytes_left). Returns the new
+// bytes_left; unchanged from the input means EOF/error (no progress).
+static size_t duration_refill(mp_obj_t file, const mp_stream_p_t *stream_p,
+                              uint8_t *buf, size_t bytes_left,
+                              size_t buf_size) {
+  if (bytes_left >= buf_size) {
+    return bytes_left;
+  }
+  int errcode = 0;
+  mp_uint_t n =
+      stream_p->read(file, buf + bytes_left, buf_size - bytes_left, &errcode);
+  if (n == MP_STREAM_ERROR || n == 0) {
+    return bytes_left;
+  }
+  return bytes_left + n;
+}
+
+// Walks every MP3 frame header from buf[0..bytes_left) to EOF, summing
+// samples. buf/buf_size is reused as the read window throughout. Returns
+// duration in seconds, or -1.0 if no valid frame could be found at all.
+static double mp3_duration_full_scan(mp_obj_t file, uint8_t *buf,
+                                     size_t buf_size, size_t bytes_left) {
+  const mp_stream_p_t *stream_p = mp_get_stream_raise(file, MP_STREAM_OP_READ);
+  HMP3Decoder dec = MP3InitDecoder();
+  uint64_t total_samples_per_channel = 0;
+  int samprate = 0;
+
+  while (true) {
+    if (bytes_left < 16) {
+      size_t before = bytes_left;
+      bytes_left = duration_refill(file, stream_p, buf, bytes_left, buf_size);
+      if (bytes_left == before && bytes_left < 4) {
+        break; // truly out of data
+      }
+    }
+
+    int offset = MP3FindSyncWord(buf, bytes_left);
+    if (offset < 0) {
+      size_t before = bytes_left;
+      bytes_left = duration_refill(file, stream_p, buf, bytes_left, buf_size);
+      if (bytes_left == before) {
+        break; // no more data and no sync word in what we have -- done
+      }
+      continue;
+    }
+
+    if (bytes_left - (size_t)offset < 16) {
+      memmove(buf, buf + offset, bytes_left - offset);
+      bytes_left -= offset;
+      size_t before = bytes_left;
+      bytes_left = duration_refill(file, stream_p, buf, bytes_left, buf_size);
+      if (bytes_left == before) {
+        break; // header straddles EOF; nothing more to count
+      }
+      continue;
+    }
+
+    MP3FrameInfo info;
+    int err = MP3GetNextFrameInfo(dec, &info, buf + offset);
+    int padding = (buf[offset + 2] >> 1) & 0x1;
+    int frame_len = (err == 0) ? mp3_frame_length(info.bitrate, info.samprate,
+                                                  info.version == 0, padding)
+                               : 0;
+
+    if (err != 0 || frame_len < 4 || info.samprate <= 0) {
+      // False sync -- nudge forward a byte and keep looking, same
+      // defensive resync used by playback.
+      memmove(buf, buf + offset + 1, bytes_left - offset - 1);
+      bytes_left -= (offset + 1);
+      continue;
+    }
+
+    if ((size_t)frame_len > buf_size) {
+      break; // pathological; bail rather than loop forever
+    }
+
+    if (bytes_left - (size_t)offset < (size_t)frame_len) {
+      memmove(buf, buf + offset, bytes_left - offset);
+      bytes_left -= offset;
+      size_t before = bytes_left;
+      bytes_left = duration_refill(file, stream_p, buf, bytes_left, buf_size);
+      if (bytes_left == before) {
+        break; // truncated final frame; stop counting here
+      }
+      continue;
+    }
+
+    total_samples_per_channel +=
+        info.outputSamps / (info.nChans > 0 ? info.nChans : 1);
+    samprate = info.samprate;
+
+    size_t consumed = (size_t)offset + (size_t)frame_len;
+    memmove(buf, buf + consumed, bytes_left - consumed);
+    bytes_left -= consumed;
+  }
+
+  MP3FreeDecoder(dec);
+  if (samprate <= 0) {
+    return -1.0;
+  }
+  return (double)total_samples_per_channel / samprate;
+}
+
+// mp_load_method()/mp_call_method_n_kw() plumbing for file.seek(offset,
+// whence), used to get the file size (seek to end, tell via return
+// value, seek back) without depending on os.stat() being meaningful for
+// this particular VFS (some custom/streaming VFS implementations, e.g.
+// a network-backed one, may not report a size any other way).
+static mp_int_t duration_stream_seek(mp_obj_t file, mp_int_t offset,
+                                     mp_int_t whence) {
+  mp_obj_t dest[4];
+  mp_load_method(file, MP_QSTR_seek, dest);
+  dest[2] = mp_obj_new_int(offset);
+  dest[3] = mp_obj_new_int(whence);
+  mp_obj_t res = mp_call_method_n_kw(2, 0, dest);
+  return mp_obj_get_int(res);
 }
 
 // ---- VFS feed (runs on the MicroPython thread only) ---------------------
@@ -900,6 +1010,119 @@ static mp_obj_t audioplayer_feed(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(audioplayer_feed_obj, audioplayer_feed);
 
+// duration(path, exact=False) -> float seconds. Doesn't require play()
+// to have been called first, and doesn't touch playback state at all --
+// this opens its own independent file handle. See the "Duration
+// probing" section above for the technique breakdown.
+static mp_obj_t audioplayer_duration(size_t n_args, const mp_obj_t *pos_args,
+                                     mp_map_t *kw_args) {
+  enum { ARG_exact };
+  static const mp_arg_t allowed_args[] = {
+      {MP_QSTR_exact, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false}},
+  };
+  mp_arg_val_t parsed[MP_ARRAY_SIZE(allowed_args)];
+  mp_arg_parse_all(n_args - 2, pos_args + 2, kw_args,
+                   MP_ARRAY_SIZE(allowed_args), allowed_args, parsed);
+  bool want_exact = parsed[ARG_exact].u_bool;
+  mp_obj_t path_obj = pos_args[1];
+
+  mp_obj_t open_fn = mp_load_global(MP_QSTR_open);
+  mp_obj_t open_call_args[2] = {path_obj, MP_OBJ_NEW_QSTR(MP_QSTR_rb)};
+  mp_obj_t file = mp_call_function_n_kw(open_fn, 2, 0, open_call_args);
+
+  mp_int_t file_size = duration_stream_seek(file, 0, 2 /* SEEK_END */);
+  duration_stream_seek(file, 0, 0 /* SEEK_SET */);
+
+  const mp_stream_p_t *stream_p = mp_get_stream_raise(file, MP_STREAM_OP_READ);
+
+  uint8_t *buf = heap_caps_malloc(DURATION_PROBE_BUF, MALLOC_CAP_8BIT);
+  if (buf == NULL) {
+    mp_obj_t close_meth[2];
+    mp_load_method(file, MP_QSTR_close, close_meth);
+    mp_call_method_n_kw(0, 0, close_meth);
+    mp_raise_OSError(MP_ENOMEM);
+  }
+
+  int errcode = 0;
+  size_t bytes_left = stream_p->read(file, buf, DURATION_PROBE_BUF, &errcode);
+  if (bytes_left == MP_STREAM_ERROR) {
+    bytes_left = 0;
+  }
+
+  // Skip a leading ID3v2 tag, same parsing as playback -- see the note
+  // in audio_play_task() about why this matters (embedded album art
+  // confuses naive sync-word scanning).
+  size_t id3_total = 0;
+  if (bytes_left >= 10 && memcmp(buf, "ID3", 3) == 0) {
+    uint8_t flags = buf[5];
+    uint32_t tag_size = ((buf[6] & 0x7F) << 21) | ((buf[7] & 0x7F) << 14) |
+                        ((buf[8] & 0x7F) << 7) | (buf[9] & 0x7F);
+    id3_total = 10 + tag_size + ((flags & 0x10) ? 10 : 0);
+
+    while (bytes_left < id3_total && bytes_left < DURATION_PROBE_BUF) {
+      size_t before = bytes_left;
+      bytes_left =
+          duration_refill(file, stream_p, buf, bytes_left, DURATION_PROBE_BUF);
+      if (bytes_left == before) {
+        break;
+      }
+    }
+    if (id3_total < bytes_left) {
+      memmove(buf, buf + id3_total, bytes_left - id3_total);
+      bytes_left -= id3_total;
+    } else {
+      bytes_left = 0; // tag ate everything we've buffered (and maybe more)
+    }
+  }
+
+  double duration_sec = -1.0;
+
+  if (!want_exact && bytes_left >= 4) {
+    int offset = MP3FindSyncWord(buf, bytes_left);
+    if (offset >= 0 && (size_t)offset + 4 <= bytes_left) {
+      HMP3Decoder probe_dec = MP3InitDecoder();
+      MP3FrameInfo info;
+      int err = MP3GetNextFrameInfo(probe_dec, &info, buf + offset);
+      MP3FreeDecoder(probe_dec);
+
+      if (err == 0 && info.samprate > 0) {
+        int samples_per_frame = (info.version == 0) ? 1152 : 576;
+        uint32_t num_frames = 0;
+        if (find_vbr_header(buf + offset, bytes_left - offset, &info,
+                            &num_frames) == 0 &&
+            num_frames > 0) {
+          duration_sec = (double)num_frames * samples_per_frame / info.samprate;
+        } else if (info.bitrate > 0) {
+          mp_int_t audio_bytes = file_size - (mp_int_t)id3_total - offset;
+          if (audio_bytes > 0) {
+            duration_sec = (double)audio_bytes * 8.0 / info.bitrate;
+          }
+        }
+      }
+    }
+  }
+
+  if (duration_sec < 0) {
+    // exact=True, or the fast path had nothing to work with -- walk
+    // every frame header in the file instead.
+    duration_sec =
+        mp3_duration_full_scan(file, buf, DURATION_PROBE_BUF, bytes_left);
+  }
+
+  free(buf);
+  mp_obj_t close_meth[2];
+  mp_load_method(file, MP_QSTR_close, close_meth);
+  mp_call_method_n_kw(0, 0, close_meth);
+
+  if (duration_sec < 0) {
+    mp_raise_ValueError(MP_ERROR_TEXT("could not determine MP3 duration"));
+  }
+
+  return mp_obj_new_float((mp_float_t)duration_sec);
+}
+static MP_DEFINE_CONST_FUN_OBJ_KW(audioplayer_duration_obj, 2,
+                                  audioplayer_duration);
+
 static void audioplayer_close_file(audioplayer_obj_t *self) {
   if (self->file_obj != mp_const_none) {
     mp_obj_t close_meth[2];
@@ -1014,6 +1237,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(audioplayer_tags_obj, audioplayer_tags);
 static const mp_rom_map_elem_t audioplayer_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_play), MP_ROM_PTR(&audioplayer_play_obj)},
     {MP_ROM_QSTR(MP_QSTR_pause), MP_ROM_PTR(&audioplayer_pause_obj)},
+    {MP_ROM_QSTR(MP_QSTR_duration), MP_ROM_PTR(&audioplayer_duration_obj)},
     {MP_ROM_QSTR(MP_QSTR_resume), MP_ROM_PTR(&audioplayer_resume_obj)},
     {MP_ROM_QSTR(MP_QSTR_is_paused), MP_ROM_PTR(&audioplayer_is_paused_obj)},
     {MP_ROM_QSTR(MP_QSTR_feed), MP_ROM_PTR(&audioplayer_feed_obj)},
@@ -1037,6 +1261,8 @@ static const mp_rom_map_elem_t audioplayer_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_audioplayer)},
     {MP_ROM_QSTR(MP_QSTR_AudioPlayer),
      MP_ROM_PTR(&audioplayer_AudioPlayer_type)},
+    {MP_ROM_QSTR(MP_QSTR_AudioRecorder),
+     MP_ROM_PTR(&audiorecorder_AudioRecorder_type)},
 };
 static MP_DEFINE_CONST_DICT(audioplayer_module_globals,
                             audioplayer_module_globals_table);

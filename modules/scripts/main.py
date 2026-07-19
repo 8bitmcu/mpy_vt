@@ -4,6 +4,7 @@ import vt
 import tdeck_kbd
 import tdeck_trk
 import tdeck_kvm
+import board
 import os
 import sys
 import time
@@ -13,21 +14,21 @@ import statusbar
 import shell
 
 # Must be called before initializing LCD / Keyboard
-machine.Pin(10, machine.Pin.OUT, value=1)
-time.sleep(0.1)
+machine.Pin(board.POWERON, machine.Pin.OUT, value=1)
+time.sleep(0.5)
 
 # Pull all SPI CS pins HIGH before touching the bus (prevents bus conflicts)
-machine.Pin(12, machine.Pin.OUT, value=1)  # display CS
-machine.Pin(9, machine.Pin.OUT, value=1)   # LoRa CS
-machine.Pin(39, machine.Pin.OUT, value=1)  # SD CS
-machine.Pin(38, machine.Pin.IN, machine.Pin.PULL_UP)  # MISO pull-up
-time.sleep(0.1)
+machine.Pin(board.TFT_CS, machine.Pin.OUT, value=1)  # display CS
+machine.Pin(board.RADIO_CS, machine.Pin.OUT, value=1)   # LoRa CS
+machine.Pin(board.SDCARD_CS, machine.Pin.OUT, value=1)  # SD CS
+machine.Pin(board.SPI_MISO, machine.Pin.IN, machine.Pin.PULL_UP)  # MISO pull-up
+time.sleep(0.5)
 
 # Mount SD Card (Experimental; doesn't seem to always work)
 try:
     import sdcard
-    sd_spi = machine.SoftSPI(baudrate=400000, sck=machine.Pin(40), mosi=machine.Pin(41), miso=machine.Pin(38))
-    sd = sdcard.SDCard(sd_spi, machine.Pin(39, machine.Pin.OUT))
+    sd_spi = machine.SoftSPI(baudrate=400000, sck=machine.Pin(board.SPI_SCK), mosi=machine.Pin(board.SPI_MOSI), miso=machine.Pin(board.SPI_MISO))
+    sd = sdcard.SDCard(sd_spi, machine.Pin(board.SDCARD_CS, machine.Pin.OUT))
 
     os.mount(os.VfsFat(sd), '/sd')
 except Exception as e:
@@ -35,7 +36,7 @@ except Exception as e:
 
 # Create hardware SPI; this configures the GPIO matrix for pins 40/41.
 # SoftSPI is no longer used after this point.
-spi = machine.SPI(1, baudrate=40000000, sck=machine.Pin(40), mosi=machine.Pin(41), miso=machine.Pin(38))
+spi = machine.SPI(1, baudrate=80000000, sck=machine.Pin(board.SPI_SCK), mosi=machine.Pin(board.SPI_MOSI), miso=machine.Pin(board.SPI_MISO))
 
 # The card is already initialized. Only the transport changes.
 # Gives the already-mounted SD card faster hardware SPI for data transfers.
@@ -83,10 +84,9 @@ env = Environment("terminus_mpy_14")
 tft = st7789.ST7789(spi,
                     env.screen_height,
                     env.screen_width,
-                    reset=machine.Pin(1, machine.Pin.OUT),
-                    dc=machine.Pin(11, machine.Pin.OUT),
-                    cs=machine.Pin(12, machine.Pin.OUT),
-                    backlight=machine.Pin(42, machine.Pin.OUT),
+                    dc=machine.Pin(board.TFT_DC, machine.Pin.OUT),
+                    cs=machine.Pin(board.TFT_CS, machine.Pin.OUT),
+                    backlight=machine.Pin(board.BL, machine.Pin.OUT),
                     rotation=1,
                     buffer_size=env.screen_width*env.font.HEIGHT*2)
 tft.init()
@@ -96,7 +96,8 @@ env.term = vt.VT(tft, env)
 env.term.top_offset(env.status_height)
 
 # Initialize keyboard
-kbd = tdeck_kbd.Keyboard(sda=18, scl=8)
+kbd = tdeck_kbd.Keyboard(sda=board.I2C_SDA,
+                         scl=board.I2C_SCL)
 
 # Initialize Trackball
 tdeck_trk.init()

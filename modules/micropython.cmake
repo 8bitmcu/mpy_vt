@@ -26,4 +26,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/vttui/micropython.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/xml/micropython.cmake)
 
 # include the i2s module (audio)
-include(${CMAKE_CURRENT_LIST_DIR}/i2s/micropython.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/tdeck_i2s/micropython.cmake)
+
+# include the lora module
+include(${CMAKE_CURRENT_LIST_DIR}/tdeck_lora/micropython.cmake)

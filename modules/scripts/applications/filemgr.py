@@ -167,6 +167,7 @@ def main(env, *args):
                                     tui.clear_screen()
                                     env.shell.execute(cmd, new_path)
                                     tui.cursor_hide()
+                                    tui.enter_altscreen()
                                 else:
                                     show_error(win, tui, f"no application for .{ext} files")
                         except OSError:

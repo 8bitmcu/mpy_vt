@@ -55,11 +55,13 @@ for a particular purpose. In no event will the author be held liable
 for damages arising from the use of this font.
 """
 '
-python3 fontconvert.py \
-  ../fonts/Tamzen/Tamzen6x12r.ttf \
-  -b ../fonts/Tamzen/Tamzen6x12b.ttf \
-  -u 12 > ../modules/scripts/fonts/tamzen_mpy_11.py
-
+(
+  echo "$TAMZEN_LICENSE_HEADER"
+  python3 fontconvert.py \
+    ../fonts/Tamzen/Tamzen6x12r.ttf \
+    -b ../fonts/Tamzen/Tamzen6x12b.ttf \
+    -u 12
+) > "../modules/scripts/fonts/tamzen_mpy_11.py"
 
 # Gohu
 GOHU_LICENSE_HEADER='"""

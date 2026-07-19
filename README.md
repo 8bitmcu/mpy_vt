@@ -25,13 +25,13 @@ This project is optimized for the **LilyGO T-Deck**, leveraging MicroPython to i
 | :--- | :--- | :--- |
 | **Memory** | 8MB PSRAM / 16MB Flash | ✅ Enabled for Large Buffer Handling |
 | **Display** | 2.4" ST7789 LCD (320x240) | ✅ Optimized SPI bus (Full Color) |
+| **LoRa Radio** | SX1262 | ✅ Hard Coded frequencies |
 | **Keyboard** | LILYGO Keyboard | ✅ Mapped I2C Interface |
 | **Trackball** | LILYGO Trackball | ✅ Mapped I2C Interface |
 | **Speaker** | I2S | ✅ MP3/WAV Playback Support |
+| **Microphone** | I2S, ES7210 ADC | ❌ Experimental |
 | **SD Card** | SPI | ❌ Experimental |
-| **Microphone** | I2S, ES7210 ADC | todo |
 | **Touchscreen** | GT911 | todo |
-| **LoRa Radio** | SX1262 | todo |
 
 
 ## ⚡ Quick Install (Pre-compiled Binaries)

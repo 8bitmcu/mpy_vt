@@ -48,6 +48,10 @@ class Shell:
         self.alias_file = "/flash/.favs.json"
         self._load_aliases()
 
+        # temp entries
+        self.register("rec",         _app("rec"))
+        self.register("radio",       _app("radio"))
+
         self.register("ftp",         _app("applications.ftp"))
         self.register("ftpd",        _app("applications.ftpd"))
         self.register("telnet",      _app("applications.telnet"))
