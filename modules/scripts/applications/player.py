@@ -41,7 +41,7 @@ def main(env, args):
         applications.c2.decode(file, c2_tmp_file)
         file = c2_tmp_file
 
-    vol = 50
+    vol = env.audio.volume()
 
     tui = env.tui
     ui_state = "MAIN_MENU"
@@ -52,7 +52,6 @@ def main(env, args):
     BOLD = "\x1b[1m"
     CYAN = "\x1b[38;5;45m"
 
-    env.audio.volume(vol)
     env.audio.play(file)
 
     # works but is slow...

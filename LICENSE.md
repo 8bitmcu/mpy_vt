@@ -85,6 +85,12 @@ The low-bitrate speech codec used by the `c2` encode/decode utility is based on 
 * **Copyright:** Roman Czyborra, Paul Hardy, and contributors.
 * **License:** Dual-licensed under the **SIL Open Font License 1.1** and **GNU GPL v2+ with the GNU Font Embedding Exception**; used here under the SIL Open Font License 1.1.
 
+### Siji Font
+The `--icons` glyph set is based on Siji.
+* **Copyright:** stark and contributors (based on Stlarch; glyphs drawn from FontAwesome and other icon packs).
+* **License:** **GNU General Public License v2.0**.
+* **Summary:** Unlike Unifont's GPL option, Siji carries no font-embedding exception -- compiling it into the firmware creates a combined GPLv2 work, same as `frotz` (see the note at the end of this file).
+
 ### MicroPython
 * **Copyright:** (c) Damien P. George.
 * **License:** **MIT License**.
@@ -96,4 +102,4 @@ While the original `vi` code follows the 0BSD license and the `st` engine follow
 
 ---
 
-While the original source code for vtOS is provided under the MIT license, compiling it with the optional frotz module creates a combined work that falls under the GNU General Public License v2.0 (GPL-2.0) upon distribution.
+While the original source code for vtOS is provided under the MIT license, compiling it with the optional frotz module or the siji icon font creates a combined work that falls under the GNU General Public License v2.0 (GPL-2.0) upon distribution.

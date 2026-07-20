@@ -50,7 +50,7 @@ def main(env, *args):
 
             lst = win.make_list(FONTS,
                                 x=0, y=2,
-                                width=env.cols, height=win.inner_h-2,
+                                width=env.cols, height=win.inner_h-3,
                                 fg=252, bg=18,
                                 arrow=">", left_pad=1)
 

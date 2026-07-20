@@ -72,7 +72,13 @@ static void selnormalize(void);
 static void selscroll(int, int);
 static void selsnap(int *, int *, int);
 
-static size_t utf8decode(const char *, Rune *, size_t);
+// Not static -- draw_bar_ansi() (fb.c) needs this too, see st.h. Was
+// internal-linkage-only, which happened to never matter until the status
+// bar's own text started containing real multi-byte UTF-8 (icons):
+// draw_bar_ansi() was feeding tputc() one raw byte at a time instead of
+// decoding first, silently "working" only because every byte of plain
+// ASCII text is already its own valid codepoint.
+size_t utf8decode(const char *, Rune *, size_t);
 static Rune utf8decodebyte(char, size_t *);
 static char utf8encodebyte(Rune, size_t);
 static size_t utf8validate(Rune *, size_t);
@@ -2005,10 +2011,14 @@ int eschandle(uchar ascii) {
 }
 
 // Not a full East Asian Width table -- just the ranges this project
-// actually ships wide glyphs for (see WIDE_FONT/WIDE_CHARS in fb.c),
-// starting with Chess Symbols (U+2654-265F), which Unifont -- the only
-// font with wide glyphs so far -- draws at 16px instead of its normal
-// 8px. Extend this if/when more wide-glyph ranges get added.
+// actually ships wide glyphs for (see WIDE_FONT/WIDE_CHARS/WIDE_FIRST in
+// fb.c): Chess Symbols (U+2654-265F, bundled into Unifont's own
+// WIDE_FONT block) and Siji's icon range (U+E000-E195, loaded as a
+// separate iconic font via VT.set_icon_font() -- see fb.h/vt_module.c).
+// Both are actual glyph widths in their respective fonts, not a font-
+// specific preference, so this stays a static table rather than reading
+// whatever's currently loaded. Extend this if/when more wide-glyph
+// ranges get added.
 int st_wcwidth(uint32_t u) {
   if (u == 0)
     return 0;
@@ -2016,6 +2026,8 @@ int st_wcwidth(uint32_t u) {
     return -1; // Control characters
   if (u >= 0x2654 && u <= 0x265f)
     return 2; // Chess Symbols
+  if (u >= 0xe000 && u <= 0xe195)
+    return 2; // Siji icons (UNICODE_ICONS in fontconvert.py)
   return 1;    // Everything else is 1 cell wide
 }
 

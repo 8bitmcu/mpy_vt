@@ -44,7 +44,7 @@ if sd is not None:
     sd.spi = spi
 
 class Environment:
-    def __init__(self, font):
+    def __init__(self, font, icon_font):
         # Screen dimensions in pixel
         self.screen_width = 320
         self.screen_height = 240
@@ -53,6 +53,8 @@ class Environment:
         self.rows = 0
         self.font = None
         self.font_name = ""
+        self.icon_font = None
+        self.icon_font_name = None
         self.kvm = None
         self.tui = None
         self.term = None
@@ -60,6 +62,7 @@ class Environment:
         self.shell = None
         self.audio = None
         self.update_font(font)
+        self.update_icon_font(icon_font)
 
     def update_font(self, font_name):
         self.font = __import__(f"fonts.{font_name}", None, None, [font_name])
@@ -78,7 +81,18 @@ class Environment:
             self.term.top_offset(self.status_height)
             env.sts.update_width(self.cols)
 
-env = Environment("terminus_mpy_14")
+    def update_icon_font(self, font_name):
+        if font_name is None:
+            self.icon_font = None
+            self.icon_font_name = None
+        else:
+            self.icon_font = __import__(f"fonts.{font_name}", None, None, [font_name])
+            self.icon_font_name = font_name
+
+        if self.term:
+            self.term.set_icon_font(self.icon_font)
+
+env = Environment("terminus_mpy_14", "siji_mpy_statusbar_12")
 
 # Initialze LCD
 tft = st7789.ST7789(spi,
@@ -94,6 +108,7 @@ tft.init()
 # Initialize ST engine
 env.term = vt.VT(tft, env)
 env.term.top_offset(env.status_height)
+env.term.set_icon_font(env.icon_font)
 
 # Initialize keyboard
 kbd = tdeck_kbd.Keyboard(sda=board.I2C_SDA,
@@ -109,7 +124,7 @@ env.kvm = tdeck_kvm.KVM(env.term, kbd)
 os.dupterm(env.kvm)
 
 # Status bar component
-env.sts = statusbar.StatusBar(env.term, width=env.cols)
+env.sts = statusbar.StatusBar(env.term, env, width=env.cols)
 env.sts.refresh()
 
 # The FAST loop (30ms)

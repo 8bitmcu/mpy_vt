@@ -94,8 +94,21 @@ void draw_bar_ansi(const char *text, size_t len, int bar_type) {
   term.c.attr.bg = defaultbg;
   term.esc = 0;
 
-  for (size_t i = 0; i < len; i++) {
-    tputc(text[i]);
+  // Decode UTF-8 the same way twrite() does (st.c) -- tputc() expects a
+  // full, already-decoded Rune, not raw bytes. Feeding it one byte at a
+  // time (the old code here) silently "worked" only as long as the
+  // status bar's own text was pure ASCII, where every byte already is
+  // its own valid codepoint; it breaks for real multi-byte UTF-8 like
+  // the icon glyphs, splitting each 3-byte sequence into three bogus
+  // single-byte "codepoints" that never match anything (or trigger
+  // ATTR_WIDE via st_wcwidth()).
+  for (size_t i = 0; i < len;) {
+    Rune u;
+    size_t charsize = utf8decode(text + i, &u, len - i);
+    if (charsize == 0)
+      break;
+    tputc(u);
+    i += charsize;
   }
 
   term.line = original_lines;
@@ -174,13 +187,27 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
       // padding math above needs to change, only these two loops.
       uint8_t col_width_cache[num_cols];
 
-      mp_buffer_info_t reg_buf, bold_buf;
-      mp_get_buffer_raise(mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font->globals),
-                                          MP_OBJ_NEW_QSTR(MP_QSTR_REGULAR)),
-                          &reg_buf, MP_BUFFER_READ);
-      mp_get_buffer_raise(mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font->globals),
-                                          MP_OBJ_NEW_QSTR(MP_QSTR_BOLD)),
-                          &bold_buf, MP_BUFFER_READ);
+      // REGULAR/BOLD are normally required -- every font shipped by
+      // fontconvert.py's default (non---icons) mode defines them. But
+      // --icons mode produces an icons-ONLY module with neither, so an
+      // icons-only font selected as the active font (see icontest.py's
+      // earlier approach, before ICONS could live alongside a real font)
+      // would otherwise hit the same "mp_obj_dict_get raises KeyError on
+      // a missing key" crash WIDE_FONT/UNICODE_FONT already hit. Optional
+      // here too: missing REGULAR just means ASCII text renders blank
+      // for this font rather than crashing (see the ASCII-range branch
+      // below, which now checks reg_buf.buf before using it).
+      mp_buffer_info_t reg_buf = {0}, bold_buf = {0};
+      mp_obj_t reg_obj = dict_get_optional(MP_OBJ_TO_PTR(vt->font->globals),
+                                           MP_QSTR_REGULAR);
+      if (reg_obj != MP_OBJ_NULL && reg_obj != mp_const_none) {
+        mp_get_buffer_raise(reg_obj, &reg_buf, MP_BUFFER_READ);
+      }
+      mp_obj_t bold_obj = dict_get_optional(MP_OBJ_TO_PTR(vt->font->globals),
+                                            MP_QSTR_BOLD);
+      if (bold_obj != MP_OBJ_NULL && bold_obj != mp_const_none) {
+        mp_get_buffer_raise(bold_obj, &bold_buf, MP_BUFFER_READ);
+      }
 
       // Unicode font handling
       mp_buffer_info_t box_buf = {0};
@@ -202,22 +229,43 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
         }
       }
 
-      // Wide (double-width) glyph handling, e.g. Chess Symbols via
-      // Unifont -- see ATTR_WIDE/ATTR_WDUMMY in st.c. Optional: most
-      // fonts don't define WIDE_FONT, in which case wide_buf.buf stays
-      // NULL and ATTR_WIDE cells just fall back to rendering narrow,
-      // same as a font missing any other glyph.
+      // Wide (double-width) glyph handling, e.g. Chess Symbols (bundled
+      // directly into Unifont's own WIDE_FONT block) or an icon font like
+      // Siji (loaded independently via VT.set_icon_font() -- see fb.h).
+      // Two supported shapes for WIDE_FONT, checked in this order:
+      //   1. Contiguous range (WIDE_FIRST + WIDE_COUNT): O(1) index, no
+      //      per-glyph table -- for a big set like Siji's ~400 icons,
+      //      where a codepoint array would mean a many-hundred-entry
+      //      stack allocation on every single redraw.
+      //   2. Explicit small list (WIDE_CHARS): for a handful of
+      //      non-contiguous codepoints, e.g. the dozen Chess Symbols.
+      // Optional either way: no icon_font set, or a main font with
+      // neither shape, just means ATTR_WIDE cells render narrow, same as
+      // any other missing glyph.
       mp_buffer_info_t wide_buf = {0};
       uint32_t wide_codepoints[32];
       size_t wide_count = 0;
+      uint32_t wide_first = 0;
+      uint32_t wide_range_count = 0;
       uint8_t wide_width = f_width;
+      uint8_t wide_height = f_height;
       uint8_t wide_row_bytes = wide;
+      mp_obj_module_t *icon_font_mod = vt->icon_font ? vt->icon_font : vt->font;
       mp_obj_t wide_font_obj = dict_get_optional(
-          MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_FONT"));
+          MP_OBJ_TO_PTR(icon_font_mod->globals), qstr_from_str("WIDE_FONT"));
       if (wide_font_obj != MP_OBJ_NULL && wide_font_obj != mp_const_none) {
         mp_get_buffer_raise(wide_font_obj, &wide_buf, MP_BUFFER_READ);
+        mp_obj_t wfirst_obj = dict_get_optional(
+            MP_OBJ_TO_PTR(icon_font_mod->globals), qstr_from_str("WIDE_FIRST"));
+        mp_obj_t wrange_count_obj = dict_get_optional(
+            MP_OBJ_TO_PTR(icon_font_mod->globals), qstr_from_str("WIDE_COUNT"));
+        if (wfirst_obj != MP_OBJ_NULL && wfirst_obj != mp_const_none &&
+            wrange_count_obj != MP_OBJ_NULL && wrange_count_obj != mp_const_none) {
+          wide_first = (uint32_t)mp_obj_get_int(wfirst_obj);
+          wide_range_count = (uint32_t)mp_obj_get_int(wrange_count_obj);
+        }
         mp_obj_t wchars_obj = dict_get_optional(
-            MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_CHARS"));
+            MP_OBJ_TO_PTR(icon_font_mod->globals), qstr_from_str("WIDE_CHARS"));
         if (wchars_obj != MP_OBJ_NULL && wchars_obj != mp_const_none) {
           wide_count = (size_t)mp_obj_get_int(mp_obj_len(wchars_obj));
           if (wide_count > 32)
@@ -227,10 +275,50 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
                 wchars_obj, MP_OBJ_NEW_SMALL_INT(j), MP_OBJ_SENTINEL));
         }
         mp_obj_t wwidth_obj = dict_get_optional(
-            MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_WIDTH"));
+            MP_OBJ_TO_PTR(icon_font_mod->globals), qstr_from_str("WIDE_WIDTH"));
         if (wwidth_obj != MP_OBJ_NULL && wwidth_obj != mp_const_none) {
           wide_width = (uint8_t)mp_obj_get_int(wwidth_obj);
           wide_row_bytes = (wide_width + 7) / 8;
+        }
+        mp_obj_t wheight_obj = dict_get_optional(
+            MP_OBJ_TO_PTR(icon_font_mod->globals), qstr_from_str("WIDE_HEIGHT"));
+        if (wheight_obj != MP_OBJ_NULL && wheight_obj != mp_const_none) {
+          wide_height = (uint8_t)mp_obj_get_int(wheight_obj);
+        }
+      }
+
+      // Wide glyphs always occupy a fixed 2*f_width x f_height cell (that's
+      // what ATTR_WIDE + the following ATTR_WDUMMY actually reserve in the
+      // grid -- see col_width_cache below), regardless of the icon font's
+      // own glyph size. wide_width/wide_height describe the actual bitmap
+      // instead, centered within that cell: padded on all sides if
+      // smaller, clipped evenly if larger. Lets a fixed-size icon font
+      // (e.g. Siji) pair with any main font, not just one whose width
+      // happens to be exactly half the icon's.
+      int16_t wide_x_off = ((int16_t)(2 * f_width) - (int16_t)wide_width) / 2;
+      int16_t wide_y_off = ((int16_t)f_height - (int16_t)wide_height) / 2;
+
+      // Icon glyph handling (fontconvert.py --icons), e.g. Siji. One
+      // contiguous codepoint range starting at ICON_FIRST, so unlike
+      // UNICODE_FONT/WIDE_FONT this doesn't need a per-glyph codepoint
+      // table -- just a base + count to compute the index directly.
+      // Optional: most fonts don't define ICONS.
+      mp_buffer_info_t icons_buf = {0};
+      uint32_t icon_first = 0;
+      uint32_t icon_count = 0;
+      mp_obj_t icons_font_obj = dict_get_optional(
+          MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("ICONS"));
+      if (icons_font_obj != MP_OBJ_NULL && icons_font_obj != mp_const_none) {
+        mp_get_buffer_raise(icons_font_obj, &icons_buf, MP_BUFFER_READ);
+        mp_obj_t ifirst_obj = dict_get_optional(
+            MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("ICON_FIRST"));
+        if (ifirst_obj != MP_OBJ_NULL && ifirst_obj != mp_const_none) {
+          icon_first = (uint32_t)mp_obj_get_int(ifirst_obj);
+        }
+        mp_obj_t icount_obj = dict_get_optional(
+            MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("ICON_COUNT"));
+        if (icount_obj != MP_OBJ_NULL && icount_obj != mp_const_none) {
+          icon_count = (uint32_t)mp_obj_get_int(icount_obj);
         }
       }
 
@@ -258,30 +346,49 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
 
         uint32_t char_val = ln[col_idx].u;
 
-        if ((ln[col_idx].mode & ATTR_WIDE) && wide_buf.buf && wide_count > 0) {
+        if (ln[col_idx].mode & ATTR_WIDE) {
+          // Always reserve the fixed 2 cells' worth of pixels -- see the
+          // wide_x_off/wide_y_off comment above -- regardless of whether a
+          // matching glyph is actually found below. Its ATTR_WDUMMY partner
+          // unconditionally contributes 0 pixels, so if this cell fell back
+          // to a narrower width instead, the row would render fewer pixels
+          // than set_window() was told to expect and desync the SPI burst
+          // for every row after it. A missing glyph renders as a blank
+          // 2-wide cell (font_ptr_cache NULL, handled generically by the
+          // render loop below), not a narrower one.
+          col_width_cache[i] = 2 * f_width;
           font_ptr_cache[i] = NULL;
-          for (size_t j = 0; j < wide_count; j++) {
-            if (wide_codepoints[j] == char_val) {
-              font_ptr_cache[i] =
-                  (uint8_t *)wide_buf.buf + j * (f_height * wide_row_bytes);
-              break;
+          if (wide_buf.buf) {
+            if (wide_range_count > 0 && char_val >= wide_first &&
+                char_val < wide_first + wide_range_count) {
+              uint32_t index = char_val - wide_first;
+              font_ptr_cache[i] = (uint8_t *)wide_buf.buf +
+                                  index * (wide_height * wide_row_bytes);
+            } else if (wide_count > 0) {
+              for (size_t j = 0; j < wide_count; j++) {
+                if (wide_codepoints[j] == char_val) {
+                  font_ptr_cache[i] = (uint8_t *)wide_buf.buf +
+                                      j * (wide_height * wide_row_bytes);
+                  break;
+                }
+              }
             }
           }
-          if (font_ptr_cache[i]) {
-            col_width_cache[i] = wide_width;
-            continue;
-          }
-          // WIDE-marked but this font has no matching wide glyph --
-          // fall through and render narrow as a best-effort fallback.
+          continue;
         }
 
         col_width_cache[i] = f_width;
-        if (char_val >= first && char_val <= last) {
+        if (char_val >= first && char_val <= last && reg_buf.buf) {
           uint32_t offset = (char_val - first) * (f_height * wide);
-          const uint8_t *base = (ln[col_idx].mode & ATTR_BOLD)
+          const uint8_t *base = ((ln[col_idx].mode & ATTR_BOLD) && bold_buf.buf)
                                     ? (uint8_t *)bold_buf.buf
                                     : (uint8_t *)reg_buf.buf;
           font_ptr_cache[i] = base + offset;
+        } else if (icons_buf.buf && icon_count > 0 && char_val >= icon_first &&
+                   char_val < icon_first + icon_count) {
+          uint32_t index = char_val - icon_first;
+          font_ptr_cache[i] =
+              (uint8_t *)icons_buf.buf + index * (f_height * wide);
         } else if (box_buf.buf && box_count > 0) {
           font_ptr_cache[i] = NULL;
           for (size_t j = 0; j < box_count; j++) {
@@ -320,8 +427,61 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
           bool is_cursor_cell =
               (show_cursor && _y1 == cur_y && col_idx == cur_x);
           bool has_underline = (ln[col_idx].mode & ATTR_UNDERLINE);
+          bool is_wide_cell = col_width > f_width;
 
-          if (char_row_data) {
+          if (char_row_data && is_wide_cell) {
+            // Centered draw: col_width is always the fixed 2*f_width
+            // cell (see col_width_cache above), which may not match the
+            // icon bitmap's own wide_width x wide_height. Pixels outside
+            // the centered wide_x_off/wide_y_off box are plain padding;
+            // pixels inside it read from the bitmap. A row/column
+            // entirely outside the bitmap's vertical/horizontal extent
+            // is indistinguishable from "no glyph" for cursor/underline
+            // purposes -- there's no ink there to invert.
+            int16_t icon_row = (int16_t)line_y - wide_y_off;
+            bool row_in_range = (icon_row >= 0 && icon_row < wide_height);
+            const uint8_t *row_ptr =
+                row_in_range ? (char_row_data + (uint32_t)icon_row * wide_row_bytes)
+                             : NULL;
+
+            for (uint8_t pixel_col = 0; pixel_col < col_width; pixel_col++) {
+              int16_t icon_col = (int16_t)pixel_col - wide_x_off;
+              bool ink = false;
+              if (row_ptr != NULL && icon_col >= 0 && icon_col < wide_width) {
+                uint8_t byte = row_ptr[icon_col / 8];
+                ink = !(byte & (0x80 >> (icon_col % 8)));
+              }
+              uint16_t final_color = ink ? fg_cache[i] : bg_cache[i];
+
+              if (is_cursor_cell) {
+                if (ink) {
+                  switch (style) {
+                  case 0:
+                  case 1:
+                  case 2:
+                    final_color = ~final_color;
+                    break;
+                  case 3:
+                  case 4:
+                    if (is_last_row)
+                      final_color = cursor_fg;
+                    break;
+                  default:
+                    if (pixel_col < 2)
+                      final_color = cursor_fg;
+                    break;
+                  }
+                } else if ((style <= 2) || (style <= 4 && is_last_row) ||
+                          (style > 4 && pixel_col < 2)) {
+                  final_color = cursor_fg;
+                }
+              } else if (has_underline && is_last_row) {
+                final_color = fg_cache[i];
+              }
+
+              display->i2c_buffer[buf_idx++] = final_color;
+            }
+          } else if (char_row_data) {
             uint8_t row_bytes = (col_width + 7) / 8;
             const uint8_t *data_ptr = char_row_data + (line_y * row_bytes);
             for (uint8_t b_idx = 0; b_idx < row_bytes; b_idx++) {

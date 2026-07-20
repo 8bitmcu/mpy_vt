@@ -110,6 +110,7 @@ int selected(int, int);
 char *getsel(void);
 
 size_t utf8encode(Rune, char *);
+size_t utf8decode(const char *, Rune *, size_t);
 
 void *xmalloc(size_t);
 void *xrealloc(void *, size_t);

@@ -209,6 +209,7 @@ static mp_obj_t vt_VT_make_new(const mp_obj_type_t *type, size_t n_args,
 
   mp_obj_t font_obj = mp_load_attr(env_obj, MP_QSTR_font);
   self->font = (mp_obj_module_t *)MP_OBJ_TO_PTR(font_obj);
+  self->icon_font = NULL; // no iconic font paired in by default
 
   // Initialize the terminal grid engine with the extracted dimensions
   tnew(cols, rows);
@@ -237,6 +238,19 @@ static mp_obj_t vt_VT_update_layout(size_t n_args, const mp_obj_t *args) {
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(vt_VT_update_layout_obj, 4, 4,
                                     vt_VT_update_layout);
 
+// VT.set_icon_font(font_module_or_none) -- independent of the main font/
+// layout (see update_layout()). Pass None to clear it. Doesn't touch
+// cols/rows: an iconic font only ever supplies WIDE_FONT glyph data for
+// ATTR_WIDE codepoints (see fb.c's xdrawline()), never the main grid.
+static mp_obj_t vt_VT_set_icon_font(mp_obj_t self_in, mp_obj_t font_obj) {
+  vt_VT_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  self->icon_font = (font_obj == mp_const_none)
+                        ? NULL
+                        : (mp_obj_module_t *)MP_OBJ_TO_PTR(font_obj);
+  return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_2(vt_VT_set_icon_font_obj, vt_VT_set_icon_font);
+
 // Locals Dict (Methods attached to the object)
 // Even if empty, it's good practice to define it to avoid segfaults on dir(obj)
 static const mp_rom_map_elem_t vtinal_locals_dict_table[] = {
@@ -253,6 +267,7 @@ static const mp_rom_map_elem_t vtinal_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_bottom_bar_invalidate),
      MP_ROM_PTR(&vt_vt_bottom_bar_invalidate_obj)},
     {MP_ROM_QSTR(MP_QSTR_repaint_bars), MP_ROM_PTR(&vt_vt_repaint_bars_obj)},
+    {MP_ROM_QSTR(MP_QSTR_set_icon_font), MP_ROM_PTR(&vt_VT_set_icon_font_obj)},
 };
 
 static MP_DEFINE_CONST_DICT(vt_VT_locals_dict, vtinal_locals_dict_table);

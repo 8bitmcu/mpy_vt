@@ -18,6 +18,13 @@ typedef struct _vt_VT_obj_t {
   mp_obj_base_t base;
   st7789_ST7789_obj_t *display_drv;
   mp_obj_module_t *font;
+  // Optional, independent of `font`: a supplemental double-width glyph
+  // source (WIDE_FONT/WIDE_FIRST/WIDE_COUNT/WIDE_WIDTH -- see fb.c's
+  // xdrawline()) for ATTR_WIDE codepoints, e.g. an icon font like Siji
+  // paired with whichever text font is active. NULL if unset -- ATTR_WIDE
+  // cells then just render narrow, same as any other missing glyph.
+  // Set via VT.set_icon_font(), independent of the main font/layout.
+  mp_obj_module_t *icon_font;
 } vt_VT_obj_t;
 
 // Allocate a persistent line for the status bar

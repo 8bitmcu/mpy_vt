@@ -75,6 +75,7 @@ You can execute the following commands from the built-in shell:
 
 | Command | Description |
 | :---   | :--- |
+| `chess` | Basic chess game using unicode characters |
 | `clear` | Clears the screen |
 | `c2` | Codec 2 encode/decode utility |
 | `fav` | Built-in shell aliases |
@@ -187,7 +188,7 @@ make repl PORT=/dev/ttyUSB0
 
 ## ⚖️ License & Attribution
 
-This project's source code is licensed under the **MIT License**. However, if you compile the firmware with the optional `frotz` module enabled, the resulting compiled binary is distributed under the **GPLv2 License**.
+This project's source code is licensed under the **MIT License**. However, if you compile the firmware with the optional `frotz` module or the `siji` icon font enabled, the resulting compiled binary is distributed under the **GPLv2 License**.
 
 ### Third-Party Components:
 * **st License:** MIT (c) st engineers.
@@ -206,3 +207,4 @@ This project's source code is licensed under the **MIT License**. However, if yo
 * **Spleen Font:** Copyright (c) 2018-2026, Frédéric Cambus. Licensed under the [BSD 2-Clause License](https://github.com/fcambus/spleen/blob/master/LICENSE).
 * **Scientifica Font:** Copyright (c) 2020 Akshay Oppiliappan <nerdy@peppe.rs>. Licensed under the [SIL Open Font License 1.1](https://scripts.sil.org/OFL).
 * **GNU Unifont:** Copyright Roman Czyborra, Paul Hardy, and contributors. Dual-licensed under the SIL Open Font License 1.1 and GNU GPL v2+ with the GNU Font Embedding Exception; used here under the [SIL Open Font License 1.1](https://scripts.sil.org/OFL).
+* **Siji Font:** (c) stark and contributors. Based on Stlarch, with glyphs drawn from FontAwesome and other icon packs. [GPLv2 License](https://github.com/stark/siji) -- no font-embedding exception, so including it makes the compiled firmware a GPLv2 combined work (same as `frotz`).

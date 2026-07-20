@@ -144,3 +144,33 @@ GNU Font Embedding Exception; used here under the SIL Open Font License 1.1.
     ../fonts/unifont/unifont-17.0.05.bdf \
     -u 16 --force-width 8 --wide-unicode
 ) > "../modules/scripts/fonts/unifont_mpy_16.py"
+
+
+# Siji
+# NOTE: GPLv2, no font-embedding exception (unlike Unifont) -- including
+# this makes the compiled firmware a GPLv2 combined work, same as frotz.
+# See README.md / LICENSE.md.
+SIJI_LICENSE_HEADER='"""
+Siji Font License
+(c) stark and contributors. Based on Stlarch, with glyphs drawn from
+FontAwesome and other icon packs.
+Licensed under the GNU General Public License v2.0.
+"""
+'
+(
+  echo "$SIJI_LICENSE_HEADER"
+  python3 fontconvert.py \
+    ../fonts/siji/siji.bdf \
+    -u 12 --icons --wide-unicode
+) > "../modules/scripts/fonts/siji_mpy_12.py"
+
+# Curated 6-icon set (clock, speaker, wifi, battery, bluetooth, mem) --
+# see STATUSBAR_ICONS in fontconvert.py. This is the one actually meant
+# for real use (e.g. statusbar.py); siji_mpy_12/10 above carry the full
+# ~400-icon set and exist for browsing/testing via icontest.py.
+(
+  echo "$SIJI_LICENSE_HEADER"
+  python3 fontconvert.py \
+    ../fonts/siji/siji.bdf \
+    -u 12 --icons --wide-unicode --statusbar-icons
+) > "../modules/scripts/fonts/siji_mpy_statusbar_12.py"

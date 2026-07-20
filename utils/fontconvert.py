@@ -22,6 +22,17 @@ UNICODE_SYM = ''.join(chr(c) for c in (0x2500, 0x2502, 0x250c, 0x2510, 0x2514, 0
 
 UNICODE_ICONS = ''.join(chr(c) for c in range(0xE000, 0xE196))
 
+# The specific Siji icons actually used (status bar: clock, speaker,
+# wifi, battery, bluetooth, mem) -- see --statusbar-icons. Non-contiguous
+# within UNICODE_ICONS, so unlike that full range this needs the explicit
+# WIDE_CHARS list mechanism (same as WIDE_SYM below), not WIDE_FIRST/
+# WIDE_COUNT. Deliberately just these 6, not the full ~400-icon set:
+# icon glyphs only render through fb.c's WIDE_FONT path (see
+# VT.set_icon_font()), which only the vtOS terminal engine implements --
+# they don't render at all in a plain MicroPython REPL, so there was no
+# reason to ship glyphs for icons nothing outside the status bar uses.
+STATUSBAR_ICONS = ''.join(chr(c) for c in (0xE015, 0xE152, 0xE048, 0xE033, 0xE00B, 0xE020))
+
 # Chess Symbols (U+2654-265F) -- rendered double-width (see --wide-unicode),
 # matching st.c's st_wcwidth() marking these codepoints ATTR_WIDE.
 WIDE_SYM = ''.join(chr(c) for c in range(0x2654, 0x2660))
@@ -198,6 +209,9 @@ def main():
                              'U+2654-265F) as a separate WIDE_FONT block, rendered at 2x the '
                              'normal character width -- see ATTR_WIDE handling in st.c/fb.c')
     parser.add_argument('--icons', action='store_true', help='iconic font only')
+    parser.add_argument('--statusbar-icons', action='store_true',
+                        help='With --icons --wide-unicode: use the curated 6-icon '
+                             'STATUSBAR_ICONS set instead of the full ~400-icon range')
     parser.add_argument('--force-height', type=int, help='Force a specific pixel height boundary', default=None)
     parser.add_argument('--force-width', type=int, help='Force a specific pixel width boundary', default=None)
     args = parser.parse_args()
@@ -225,6 +239,44 @@ def main():
         canvas_top = bbx_yoff + bbx_h
         canvas_left = bbx_xoff
 
+        if args.icons and args.wide_unicode:
+            # Combined mode: emit the icon range as a STANDALONE iconic-
+            # font module -- WIDE_FONT/WIDE_FIRST/WIDE_COUNT/WIDE_WIDTH
+            # only, no FIRST/LAST/HEIGHT/WIDTH/REGULAR/BOLD. This module
+            # is never used as a main font (never passed to
+            # env.update_font()); it's loaded independently via
+            # VT.set_icon_font() (see vt_module.c) as a supplemental
+            # double-width glyph source for ATTR_WIDE codepoints,
+            # alongside whatever the main text font currently is.
+            #
+            # For a fixed-size bitmap icon font (e.g. Siji) that can't be
+            # rescaled like a TTF -- its glyphs are pre-drawn at one
+            # native size -- WIDE_WIDTH/WIDE_HEIGHT tell fb.c the icon's
+            # actual glyph dimensions so it can center them within
+            # whatever cell size the paired main font uses (2x its width,
+            # its own height), padding or clipping evenly on all sides as
+            # needed. A close size match still looks best, but an exact
+            # one is no longer required. Don't pass --force-width/height
+            # here unless you actually want to distort the icon font's
+            # native size.
+            if args.statusbar_icons:
+                # Curated, non-contiguous subset -- needs the explicit
+                # WIDE_CHARS list (same mechanism WIDE_SYM/chess uses),
+                # not WIDE_FIRST/WIDE_COUNT (contiguous-range only).
+                icon_set = STATUSBAR_ICONS
+                codepoints = ', '.join(hex(ord(c)) for c in icon_set)
+                print(f'WIDE_CHARS = ({codepoints},)')
+            else:
+                icon_set = UNICODE_ICONS
+                print(f'WIDE_FIRST = {hex(ord(icon_set[0]))}')
+                print(f'WIDE_COUNT = {len(icon_set)}')
+            print(f'WIDE_WIDTH = {char_width}')
+            print(f'WIDE_HEIGHT = {char_height}')
+            print()
+            emit_block('WIDE_FONT', encode_chars_bdf(
+                icon_set, reg_glyphs, char_width, char_height, canvas_top, canvas_left, bpp, args.font_file))
+            return
+
         print(f'FIRST = {hex(ord(CHARACTERS[0]))}')
         print(f'LAST = {hex(ord(CHARACTERS[-1]))}')
         print(f'HEIGHT = {char_height}')
@@ -232,7 +284,14 @@ def main():
         print()
 
         if args.icons:
-            codepoints = ', '.join(hex(ord(c)) for c in UNICODE_ICONS)
+            # UNICODE_ICONS is one contiguous range, so a base codepoint +
+            # count is enough for fb.c to compute "is this char an icon,
+            # and if so which index" directly -- no per-glyph codepoint
+            # table needed the way UNICODE_FONT/WIDE_FONT require, since
+            # those cover disjoint/non-contiguous codepoints.
+            print(f'ICON_FIRST = {hex(ord(UNICODE_ICONS[0]))}')
+            print(f'ICON_COUNT = {len(UNICODE_ICONS)}')
+            print()
             emit_block('ICONS', encode_chars_bdf(
                 UNICODE_ICONS, reg_glyphs, char_width, char_height, canvas_top, canvas_left, bpp, args.font_file))
         else:

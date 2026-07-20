@@ -10,10 +10,19 @@ import network
 import gc
 import board
 
+# Siji characters
+UPTIME = chr(0xE015).encode()
+MEM    = chr(0xE020).encode()
+WIFI   = chr(0xE048).encode()
+BT     = chr(0xE00B).encode()
+SPKR   = chr(0xE152).encode()
+BAT    = chr(0xE033).encode()
+
 class StatusBar:
 
-    def __init__(self, terminal, width=40):
+    def __init__(self, terminal, env, width=40):
         self.term = terminal
+        self.env = env  # needed for env.audio.volume() -- audio is optional/lazy
         self.start_ticks = time.ticks_ms()
         self.bat_pin = machine.ADC(machine.Pin(board.BAT_ADC))
         self.bat_pin.atten(machine.ADC.ATTN_11DB)
@@ -29,30 +38,78 @@ class StatusBar:
         """Regenerates the layout template and recalculates internal offsets dynamically."""
         self.width = width
 
-        # Fixed structural blocks matching original template rules
-        left = b"UP 0:00 | MEM      | " # 21 chars
-        right = b"WiFi OFF | BAT  00%" # 19 chars
+        # Build left/right incrementally instead of writing out a fixed
+        # byte string and reverse-engineering offsets from it -- with
+        # mixed narrow ASCII (1 byte, 1 column) and wide icons (3 bytes,
+        # 2 columns), that arithmetic doesn't reduce to a single len()
+        # anywhere, so it's tracked explicitly as each piece is appended.
+        segments = []
+        offsets = {}
+        cols = 0
+
+        def text(data):
+            nonlocal cols
+            segments.append(data)
+            cols += len(data)
+
+        def icon(data):
+            nonlocal cols
+            segments.append(data)
+            cols += 2  # WIDE glyph: 2 terminal columns regardless of UTF-8 byte length
+
+        def field(name, placeholder):
+            offsets[name] = sum(len(s) for s in segments)
+            text(placeholder)
+
+        # Left: uptime, mem, wifi
+        icon(UPTIME)
+        field('up_min', b'00')   # minutes, 2 digits (was 1 -- wrapped at 10m before)
+        text(b'm')
+        field('up_sec', b'00')   # seconds, 2 digits
+        text(b' ')
+        icon(MEM)
+        field('mem', b'0.0M')  # digit/./digit/unit below 10, digit/digit/unit at 10+ (no decimal then)
+        text(b' ')
+        icon(WIFI)
+        field('wifi', b'OFF')
+
+        left = b''.join(segments)
+        left_cols = cols
+
+        # Right: bluetooth (static -- no BT radio wired up in this
+        # project, just a fixed label), speaker volume, battery
+        segments = []
+        cols = 0
+        icon(BT)
+        text(b'OFF ')
+        icon(SPKR)
+        field('vol', b'  0')
+        text(b'% ')
+        icon(BAT)
+        field('bat', b'  0')
+        text(b'%')
+
+        right = b''.join(segments)
+        right_cols = cols
 
         # Build the middle padding dynamically to fill up to the new target width
-        pad_len = width - len(left) - len(right)
+        pad_len = width - left_cols - right_cols
         if pad_len < 0:
             pad_len = 0
-
-        mid_pad = b" " * pad_len
-        template = left + mid_pad + right
+        mid_pad = b' ' * pad_len
 
         # Reallocate the bytearray buffer matching the new dimensions
-        self.buffer = bytearray(self.style + template + self.clear + b"\x00")
+        self.buffer = bytearray(self.style + left + mid_pad + right + self.clear + b"\x00")
 
-        # Recalculate fixed positions relative to current styling sequence length
+        # Absolute offsets into self.buffer for each dynamic field
         s_len = len(self.style)
-        self.off_up   = s_len + 3   # Index of the first '0' in 0:00
-        self.off_mem  = s_len + 13  # Index of the first '0' in 000K
-
-        # Recalculate right-aligned offsets relative to the updated end of the buffer
-        content_end = len(self.buffer) - 5
-        self.off_bat  = content_end - 4 
-        self.off_wifi = self.off_bat - 11
+        right_base = s_len + len(left) + pad_len
+        self.off_up_min = s_len + offsets['up_min']
+        self.off_up_sec = s_len + offsets['up_sec']
+        self.off_mem    = s_len + offsets['mem']
+        self.off_wifi   = s_len + offsets['wifi']
+        self.off_vol    = right_base + offsets['vol']
+        self.off_bat    = right_base + offsets['bat']
 
     def _write_at(self, offset, data):
         """Helper to overwrite a slice of the buffer"""
@@ -61,7 +118,7 @@ class StatusBar:
     def refresh(self):
         # Gather raw data (Integer math only to avoid float allocations)
         total_sec = time.ticks_diff(time.ticks_ms(), self.start_ticks) // 1000
-        mins = total_sec // 60
+        mins = (total_sec // 60) % 100  # clamp to the 2-digit field, wraps at 100m now (was 10m)
         secs = total_sec % 60
 
         # Scaled integer math for battery percentage
@@ -74,35 +131,47 @@ class StatusBar:
         mem_free = gc.mem_free()
 
         if mem_free >= 1048576: # 1024 * 1024
-            mem_scaled = (mem_free * 10) // 1048576 
-            val = mem_scaled // 10    
-            dec = mem_scaled % 10     
+            mem_scaled = (mem_free * 10) // 1048576
+            val = mem_scaled // 10
+            dec = mem_scaled % 10
+            if val > 99:
+                val = 99  # clamp -- 2-digit field, and no MicroPython heap on this board gets near 100M
             unit = 77                 # ASCII 'M'
 
-            self.buffer[self.off_mem]     = 48 + (val // 10) if val >= 10 else 32
-            self.buffer[self.off_mem + 1] = 48 + (val % 10)
-            self.buffer[self.off_mem + 2] = 46 
-            self.buffer[self.off_mem + 3] = 48 + dec
-            self.buffer[self.off_mem + 4] = unit
+            if val < 10:
+                # Single digit: keep the decimal, no leading blank needed
+                self.buffer[self.off_mem]     = 48 + val
+                self.buffer[self.off_mem + 1] = 46
+                self.buffer[self.off_mem + 2] = 48 + dec
+                self.buffer[self.off_mem + 3] = unit
+            else:
+                # Two digits: both preserved, decimal dropped to fit the
+                # field (never blanks/truncates an actual digit)
+                self.buffer[self.off_mem]     = 48 + (val // 10)
+                self.buffer[self.off_mem + 1] = 48 + (val % 10)
+                self.buffer[self.off_mem + 2] = unit
+                self.buffer[self.off_mem + 3] = 32
         else:
             mem_k = mem_free // 1024
             mh = (mem_k // 100) % 10
             mt = (mem_k // 10) % 10
             mu = mem_k % 10
 
-            self.buffer[self.off_mem]     = 48 + mh if mh > 0 else 32
-            self.buffer[self.off_mem + 1] = 48 + mt if (mt > 0 or mh > 0) else 32
+            # Always zero-padded -- no leading blanks, so the value hugs
+            # the icon instead of leaving a gap
+            self.buffer[self.off_mem]     = 48 + mh
+            self.buffer[self.off_mem + 1] = 48 + mt
             self.buffer[self.off_mem + 2] = 48 + mu
             self.buffer[self.off_mem + 3] = 75 # ASCII 'K'
-            self.buffer[self.off_mem + 4] = 32 
 
-        # Poke digits into the buffer (ASCII 48 is '0')
-        # Uptime M:SS
-        self.buffer[self.off_up]     = 48 + (mins % 10)
-        self.buffer[self.off_up + 2] = 48 + (secs // 10)
-        self.buffer[self.off_up + 3] = 48 + (secs % 10)
+        # Uptime MMmSS -- both minute digits now dynamic (was 1 digit, wrapped at 10m)
+        self.buffer[self.off_up_min]     = 48 + (mins // 10)
+        self.buffer[self.off_up_min + 1] = 48 + (mins % 10)
+        self.buffer[self.off_up_sec]     = 48 + (secs // 10)
+        self.buffer[self.off_up_sec + 1] = 48 + (secs % 10)
 
-        # Battery 000%
+        # Battery percentage, right-aligned in a 3-digit field (leading
+        # zeros blanked, same style as the old code)
         bh = (pct // 100) % 10
         bt = (pct // 10) % 10
         bu = pct % 10
@@ -111,12 +180,26 @@ class StatusBar:
         self.buffer[self.off_bat + 1] = 48 + bt if (bt > 0 or bh > 0) else 32
         self.buffer[self.off_bat + 2] = 48 + bu
 
+        # Speaker volume, same right-aligned 3-digit style. env.audio is
+        # lazy/optional (only created once `play` runs -- see shell.py's
+        # _app(audio=True)), so this shows blank until then rather than
+        # crashing on a None.
+        if self.env.audio is not None:
+            vol = self.env.audio.volume()
+            vh = (vol // 100) % 10
+            vt = (vol // 10) % 10
+            vu = vol % 10
+            self.buffer[self.off_vol]     = 48 + vh if vh > 0 else 32
+            self.buffer[self.off_vol + 1] = 48 + vt if (vt > 0 or vh > 0) else 32
+            self.buffer[self.off_vol + 2] = 48 + vu
+        else:
+            self.buffer[self.off_vol : self.off_vol + 3] = b'   '
+
         # WiFi Status
         if self.wlan.isconnected():
-            self.buffer[self.off_wifi : self.off_wifi + 4] = b" ON "
+            self.buffer[self.off_wifi : self.off_wifi + 3] = b"ON "
         else:
-            self.buffer[self.off_wifi : self.off_wifi + 4] = b" OFF"
+            self.buffer[self.off_wifi : self.off_wifi + 3] = b"OFF"
 
         # Push to Terminal
         self.term.top_bar(self.buffer)
-
