@@ -76,6 +76,7 @@ You can execute the following commands from the built-in shell:
 | Command | Description |
 | :---   | :--- |
 | `clear` | Clears the screen |
+| `c2` | Codec 2 encode/decode utility |
 | `fav` | Built-in shell aliases |
 | `fc` | Font Configuration Utility |
 | `fm` | Starts the TUI File Manager |
@@ -194,6 +195,7 @@ This project's source code is licensed under the **MIT License**. However, if yo
 * **vi** (Toybox): (c) Rob Landley, Jarno Mäkipää. 0BSD License (Zero-Clause BSD).
 * **frotz**: (c) Stefan Jokisch, David Griffith. GPLv2 License
 * **yxml**: Copyright (c) 2013-2014 Yoran Heling. MIT License
+* **codec2**: (c) 2010 David Rowe. LGPL-2.1 License (vendored in full under `modules/codec2/vendor/`, see `modules/codec2/COPYING`)
 * **MicroPython**: (c) Damien P. George. MIT License
 
 ### Fonts & Assets:

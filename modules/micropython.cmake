@@ -30,3 +30,6 @@ include(${CMAKE_CURRENT_LIST_DIR}/tdeck_i2s/micropython.cmake)
 
 # include the lora module
 include(${CMAKE_CURRENT_LIST_DIR}/tdeck_lora/micropython.cmake)
+
+# include the codec2 module (low-bitrate speech codec)
+include(${CMAKE_CURRENT_LIST_DIR}/codec2/micropython.cmake)

@@ -8,6 +8,8 @@ import os
 import sys
 import time
 
+import applications.c2
+
 def fmt_size(size):
     if size < 1024:
         return f"{size}B"
@@ -17,7 +19,7 @@ def fmt_size(size):
         return f"{size / (1024 * 1024):.1f}M"
 
 def main(env, args):
-    """ Creates a TUI for playing mp3/wav audio files """
+    """ Creates a TUI for playing mp3/wav/c2 audio files """
 
     file = args[0] if len(args) > 0 else None
 
@@ -26,6 +28,18 @@ def main(env, args):
         return
 
     file_sz = os.stat(file)[6]
+
+    # If it's a codec2 container (magic-sniffed, not extension-based -- see
+    # c2.py, encode() output isn't required to be named ".c2")
+    display_name = file
+    c2_tmp_file = None
+    with open(file, "rb") as f:
+        magic = f.read(len(applications.c2.C2_MAGIC))
+    if magic == applications.c2.C2_MAGIC:
+        c2_tmp_file = file + ".wav"
+        print(f"Decoding {file}...")
+        applications.c2.decode(file, c2_tmp_file)
+        file = c2_tmp_file
 
     vol = 50
 
@@ -56,7 +70,7 @@ def main(env, args):
         if ui_state == "MAIN_MENU":
 
             info = env.audio.tags()
-            blk = win.make_block(f"{BOLD}file: {CLR}{CYAN}{file}{CLR}\n"
+            blk = win.make_block(f"{BOLD}file: {CLR}{CYAN}{display_name}{CLR}\n"
                                  f"{fmt_size(file_sz)}\n"
                                  f"\n"
                                  f"{BOLD}{info["title"]}{CLR}\n"
@@ -109,6 +123,12 @@ def main(env, args):
             err = env.audio.last_error()
             if err != 0:
                 print("playback ended with error code", err)
+
+            if c2_tmp_file:
+                try:
+                    os.remove(c2_tmp_file)
+                except OSError:
+                    pass
 
             # env.audio.deinit()
 

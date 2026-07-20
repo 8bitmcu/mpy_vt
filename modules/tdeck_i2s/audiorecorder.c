@@ -41,10 +41,13 @@
  * task, it doesn't rewrite the header or close the file for you.
  */
 
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "py/mperrno.h"
+#include "py/mphal.h"
 #include "py/runtime.h"
 #include "py/stream.h"
 
@@ -67,6 +70,31 @@
 #include "ring_buf.h" // shared with audioplayer.c
 
 static const char *TAG = "audiorecorder";
+
+// ESP_LOGE() only ever reaches ESP-IDF's own console (USB-Serial/JTAG or
+// UART0, per CONFIG_ESP_CONSOLE_*) -- os.dupterm() in main.py redirects
+// MicroPython's own stdout to the on-device LCD/keyboard terminal, but
+// that redirection doesn't touch ESP-IDF's logging backend at all, so
+// anyone running this untethered (no PC serial monitor attached) never
+// sees these init-time errors. Mirroring them through
+// mp_hal_stdout_tx_strn() puts them wherever MicroPython's stdout is
+// currently pointed instead. These only fire on rare, non-perf-critical
+// init failures, so the extra formatting cost doesn't matter.
+static void log_err_to_console(const char *fmt, ...) {
+  char buf[160];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  if (n < 0) {
+    return;
+  }
+  if ((size_t)n >= sizeof(buf)) {
+    n = sizeof(buf) - 1;
+  }
+  mp_hal_stdout_tx_strn(buf, (size_t)n);
+  mp_hal_stdout_tx_strn("\r\n", 2);
+}
 
 // ---- tunables -------------------------------------------------------
 
@@ -407,6 +435,7 @@ static mp_obj_t audiorecorder_make_new(const mp_obj_type_t *type, size_t n_args,
     ARG_i2c_addr,
     ARG_i2s_num,
     ARG_sample_rate,
+    ARG_mclk_ratio,
     ARG_channels,
     ARG_mic_gain,
     ARG_mic_bias,
@@ -427,6 +456,17 @@ static mp_obj_t audiorecorder_make_new(const mp_obj_type_t *type, size_t n_args,
        {.u_int = 0x40}}, // ES7210_ADDRRES_00
       {MP_QSTR_i2s_num, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0}},
       {MP_QSTR_sample_rate, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 16000}},
+      // es7210_set_i2s_sample_rate() (espressif/es7210 component) computes
+      // mclk_freq_hz = sample_rate_hz * mclk_ratio and looks that exact
+      // pair up in a fixed coefficient table -- it's not a free-running
+      // PLL, only specific (mclk, rate) combinations are valid. 256 lands
+      // on a valid row at the default 16000Hz (256*16000 = 4096000, which
+      // is in the table) but NOT at 8000Hz (256*8000 = 2048000, not a
+      // valid row) -- 8000Hz needs 512 instead to hit that same 4096000
+      // MCLK the table does support at that rate. There's no ratio that
+      // works for every sample_rate; pass the right one for whatever rate
+      // you actually configure, per the coefficient table in es7210.c.
+      {MP_QSTR_mclk_ratio, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 256}},
       {MP_QSTR_channels, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 2}},
       // 0dB, not the more commonly-seen 24dB default (e.g. ESPHome's
       // ES7210 support): LilyGO's own Arduino reference for this exact
@@ -526,6 +566,9 @@ static mp_obj_t audiorecorder_make_new(const mp_obj_type_t *type, size_t n_args,
       ESP_LOGE(TAG, "I2C bus init on port %d (sda=%d scl=%d) failed: %s",
                self->i2c_port, parsed[ARG_i2c_sda].u_int,
                parsed[ARG_i2c_scl].u_int, esp_err_to_name(ret));
+      log_err_to_console("I2C bus init on port %d (sda=%d scl=%d) failed: %s",
+                         self->i2c_port, parsed[ARG_i2c_sda].u_int,
+                         parsed[ARG_i2c_scl].u_int, esp_err_to_name(ret));
       rb_deinit(&self->rb);
       mp_raise_OSError(MP_EIO);
     }
@@ -541,6 +584,8 @@ static mp_obj_t audiorecorder_make_new(const mp_obj_type_t *type, size_t n_args,
   if (ret != ESP_OK) {
     ESP_LOGE(TAG, "es7210_new_codec (i2c_addr=0x%02x) failed: %s",
              (unsigned)es_i2c_conf.i2c_addr, esp_err_to_name(ret));
+    log_err_to_console("es7210_new_codec (i2c_addr=0x%02x) failed: %s",
+                       (unsigned)es_i2c_conf.i2c_addr, esp_err_to_name(ret));
     if (self->i2c_installed) {
       i2c_driver_delete(self->i2c_port);
     }
@@ -550,7 +595,7 @@ static mp_obj_t audiorecorder_make_new(const mp_obj_type_t *type, size_t n_args,
 
   es7210_codec_config_t codec_conf = {
       .sample_rate_hz = (uint32_t)self->sample_rate,
-      .mclk_ratio = 256,
+      .mclk_ratio = (uint32_t)parsed[ARG_mclk_ratio].u_int,
       .i2s_format = ES7210_I2S_FMT_I2S,
       .bit_width = ES7210_I2S_BITS_16B,
       .mic_bias = (es7210_mic_bias_t)parsed[ARG_mic_bias].u_int,
@@ -563,6 +608,10 @@ static mp_obj_t audiorecorder_make_new(const mp_obj_type_t *type, size_t n_args,
              "es7210_config_codec failed: %s -- check i2c_addr, wiring, "
              "and that nothing else already claimed this I2C port",
              esp_err_to_name(ret));
+    log_err_to_console("es7210_config_codec failed: %s -- check i2c_addr, "
+                       "wiring, and that nothing else already claimed this "
+                       "I2C port",
+                       esp_err_to_name(ret));
     es7210_del_codec(self->codec);
     if (self->i2c_installed) {
       i2c_driver_delete(self->i2c_port);
@@ -622,6 +671,11 @@ static mp_obj_t audiorecorder_make_new(const mp_obj_type_t *type, size_t n_args,
              "failed: %s",
              self->port_num, parsed[ARG_mclk].u_int, parsed[ARG_bck].u_int,
              parsed[ARG_ws].u_int, parsed[ARG_din].u_int, esp_err_to_name(ret));
+    log_err_to_console("I2S RX setup (i2s_num=%d mclk=%d bck=%d ws=%d din=%d) "
+                       "failed: %s",
+                       self->port_num, parsed[ARG_mclk].u_int,
+                       parsed[ARG_bck].u_int, parsed[ARG_ws].u_int,
+                       parsed[ARG_din].u_int, esp_err_to_name(ret));
     if (self->rx_handle) {
       i2s_del_channel(self->rx_handle);
     }

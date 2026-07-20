@@ -50,9 +50,28 @@ The Z-Machine interpreter is based on Frotz.
 * **Copyright:** Russ Hughes.
 * **License:** **MIT License**.
 
+### codec2
+The low-bitrate speech codec used by the `c2` encode/decode utility is based on codec2.
+* **Copyright:** 2010 David Rowe.
+* **License:** **GNU Lesser General Public License v2.1**.
+* **Summary:** Unlike GPL, LGPL permits linking/combining with differently-licensed code without relicensing the combined work, provided the LGPL-covered portion remains modifiable and its complete corresponding source is available. This repository vendors codec2's full source verbatim under `modules/codec2/vendor/` (see `modules/codec2/COPYING` for the license text in full) to satisfy that.
+
 ### Terminus Font
 * **Copyright:** (c) 2020 Dimitar Zhekov. 
 * **License:** **SIL Open Font License 1.1**.
+
+### Cozette Font
+* **Copyright:** (c) 2020 Samhain <samhain@moonwit.ch> & contributors <https://github.com/the-moonwitch/Cozette/contributors>.
+* **License:** **MIT License**.
+
+### Tamzen Font
+* **Copyright:** 2011 Suraj N. Kurapati <https://github.com/sunaku/tamzen-font>.
+* **License:** Permissive, custom terms.
+* **Summary:** Tamzen font is free. You are hereby granted permission to use, copy, modify, and distribute it as you see fit. Tamzen font is provided "as is" without any express or implied warranty. The author makes no representations about the suitability of this font for a particular purpose. In no event will the author be held liable for damages arising from the use of this font.
+
+### Gohu Font
+* **Copyright:** 2015 by Hugo Chargois.
+* **License:** **[WTFPL version 2](https://www.wtfpl.net/about/)**.
 
 ### MicroPython
 * **Copyright:** (c) Damien P. George.

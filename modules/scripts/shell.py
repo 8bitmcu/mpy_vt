@@ -7,7 +7,6 @@
 import sys
 import json
 import board
-import time
 
 def _app(module, tui=False, audio=False, rec=False, radio=False):
     def _run(env, *args):
@@ -33,6 +32,9 @@ def _app(module, tui=False, audio=False, rec=False, radio=False):
                                                     i2s_num=1,
                                                     channels=1,
                                                     mic_gain=9,
+                                                    dma_buf_count=6,
+                                                    sample_rate=8000,
+                                                    mclk_ratio=512,
                                                     i2c_shared=True)
 
         if radio:
@@ -103,6 +105,7 @@ class Shell:
         self.alias_file = "/flash/.favs.json"
         self._load_aliases()
 
+        self.register("c2",          _app("applications.c2"))
         self.register("ftp",         _app("applications.ftp"))
         self.register("ftpd",        _app("applications.ftpd"))
         self.register("telnet",      _app("applications.telnet"))
@@ -229,7 +232,7 @@ class Shell:
         ver = sys.implementation.version
         version_str = f"{ver[0]}.{ver[1]}.{ver[2]}"
         # TODO: move versioning to makefile
-        print(f"vtOS v0.1.8; MicroPython v{version_str}\nType 'help' to see commands.")
+        print(f"vtOS v0.1.9; MicroPython v{version_str}\nType 'help' to see commands.")
 
         while self.running:
             try:
