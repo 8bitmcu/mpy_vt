@@ -88,7 +88,7 @@ tft = st7789.ST7789(spi,
                     cs=machine.Pin(board.TFT_CS, machine.Pin.OUT),
                     backlight=machine.Pin(board.BL, machine.Pin.OUT),
                     rotation=1,
-                    buffer_size=env.screen_width*env.font.HEIGHT*2)
+                    buffer_size=env.screen_width*16*2)  # buffer_size needs to be: (screen_width * max_font_height * 2)
 tft.init()
 
 # Initialize ST engine

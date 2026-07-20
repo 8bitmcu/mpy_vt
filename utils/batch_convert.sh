@@ -63,6 +63,7 @@ for damages arising from the use of this font.
     -u 12
 ) > "../modules/scripts/fonts/tamzen_mpy_11.py"
 
+
 # Gohu
 GOHU_LICENSE_HEADER='"""
 Gohu Font License
@@ -79,3 +80,67 @@ for size in 11 14; do
       -u "$size"
   ) > "../modules/scripts/fonts/gohu_mpy_${size}.py"
 done
+
+
+# Spleen
+SPLEEN_LICENSE_HEADER='"""
+Spleen Font License
+Copyright (c) 2018-2026, Frédéric Cambus.
+Licensed under the BSD 2-Clause License.
+"""
+'
+(
+  echo "$SPLEEN_LICENSE_HEADER"
+  python3 fontconvert.py \
+    ../fonts/spleen/spleen-5x8.bdf \
+    -u 8
+) > "../modules/scripts/fonts/spleen_mpy_8.py"
+
+(
+  echo "$SPLEEN_LICENSE_HEADER"
+  python3 fontconvert.py \
+    ../fonts/spleen/spleen-6x12.bdf \
+    -u 12
+) > "../modules/scripts/fonts/spleen_mpy_12.py"
+
+
+# Scientifica
+SCIENTIFICA_LICENSE_HEADER='"""
+Scientifica Font License
+Copyright (c) 2020 Akshay Oppiliappan <nerdy@peppe.rs>
+Licensed under the SIL Open Font License 1.1
+"""
+'
+(
+  echo "$SCIENTIFICA_LICENSE_HEADER"
+  python3 fontconvert.py \
+    ../fonts/scientifica/ttf/scientifica.ttf \
+    -b ../fonts/scientifica/ttf/scientificaBold.ttf \
+    -i ../fonts/scientifica/ttf/scientificaItalic.ttf \
+    -u 11
+) > "../modules/scripts/fonts/scientifica_mpy_10.py"
+
+
+# Unifont (Chess Game)
+# NOTE: Unifont mixes 8px-wide glyphs (Latin/ASCII, most of what CHARACTERS
+# covers) with 16px-wide glyphs (CJK, and most symbol/pictographic blocks --
+# including the chess pieces we actually want this font for). This project's
+# renderer has no single-width concept of per-glyph width, so the base font
+# is forced to width=8 for correctly-sized, non-wasteful ASCII text, and the
+# chess glyphs are pulled separately via --wide-unicode into a WIDE_FONT
+# block rendered at 2x that width (16px) -- st.c's st_wcwidth() marks those
+# codepoints ATTR_WIDE so the terminal reserves two cells for them, and
+# fb.c's xdrawline() renders WIDE_FONT glyphs across both.
+UNIFONT_LICENSE_HEADER='"""
+GNU Unifont License
+Copyright Roman Czyborra, Paul Hardy, and contributors.
+Dual-licensed under the SIL Open Font License 1.1 and GNU GPL v2+ with the
+GNU Font Embedding Exception; used here under the SIL Open Font License 1.1.
+"""
+'
+(
+  echo "$UNIFONT_LICENSE_HEADER"
+  python3 fontconvert.py \
+    ../fonts/unifont/unifont-17.0.05.bdf \
+    -u 16 --force-width 8 --wide-unicode
+) > "../modules/scripts/fonts/unifont_mpy_16.py"

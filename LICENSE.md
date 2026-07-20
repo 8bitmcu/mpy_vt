@@ -73,6 +73,18 @@ The low-bitrate speech codec used by the `c2` encode/decode utility is based on 
 * **Copyright:** 2015 by Hugo Chargois.
 * **License:** **[WTFPL version 2](https://www.wtfpl.net/about/)**.
 
+### Spleen Font
+* **Copyright:** (c) 2018-2026, Frédéric Cambus.
+* **License:** **BSD 2-Clause License**.
+
+### Scientifica Font
+* **Copyright:** (c) 2020 Akshay Oppiliappan <nerdy@peppe.rs>.
+* **License:** **SIL Open Font License 1.1**.
+
+### GNU Unifont
+* **Copyright:** Roman Czyborra, Paul Hardy, and contributors.
+* **License:** Dual-licensed under the **SIL Open Font License 1.1** and **GNU GPL v2+ with the GNU Font Embedding Exception**; used here under the SIL Open Font License 1.1.
+
 ### MicroPython
 * **Copyright:** (c) Damien P. George.
 * **License:** **MIT License**.

@@ -2004,12 +2004,18 @@ int eschandle(uchar ascii) {
   return 1;
 }
 
-// TODO: this is a stub;
+// Not a full East Asian Width table -- just the ranges this project
+// actually ships wide glyphs for (see WIDE_FONT/WIDE_CHARS in fb.c),
+// starting with Chess Symbols (U+2654-265F), which Unifont -- the only
+// font with wide glyphs so far -- draws at 16px instead of its normal
+// 8px. Extend this if/when more wide-glyph ranges get added.
 int st_wcwidth(uint32_t u) {
   if (u == 0)
     return 0;
   if (u < 32 || (u >= 0x7f && u < 0xa0))
     return -1; // Control characters
+  if (u >= 0x2654 && u <= 0x265f)
+    return 2; // Chess Symbols
   return 1;    // Everything else is 1 cell wide
 }
 

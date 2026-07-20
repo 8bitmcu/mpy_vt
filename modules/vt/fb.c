@@ -19,6 +19,19 @@ int pselect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   return select(nfds, readfds, writefds, exceptfds, &tv);
 }
 
+// mp_obj_dict_get() raises a real Python KeyError for a missing key
+// (matching Python's d[key] semantics) rather than returning MP_OBJ_NULL --
+// fine for keys a font is required to define (WIDTH/HEIGHT/REGULAR/etc,
+// see xdrawline()'s "Setup Metrics"), but wrong for genuinely optional
+// per-font blocks like UNICODE_FONT/WIDE_FONT, which most fonts don't
+// define at all. Look up through the map directly for those instead --
+// same underlying lookup mp_obj_dict_get() uses, just without the raise.
+static mp_obj_t dict_get_optional(mp_obj_dict_t *dict, qstr key) {
+  mp_map_elem_t *elem =
+      mp_map_lookup(&dict->map, MP_OBJ_NEW_QSTR(key), MP_MAP_LOOKUP);
+  return elem ? elem->value : MP_OBJ_NULL;
+}
+
 uint16_t map_st_color(int number) {
   uint16_t r565;
 
@@ -151,6 +164,15 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
       uint16_t fg_cache[num_cols];
       uint16_t bg_cache[num_cols];
       const uint8_t *font_ptr_cache[num_cols];
+      // Per-column pixel width: f_width normally, WIDE_WIDTH (2x) for an
+      // ATTR_WIDE cell drawing a double-width glyph, 0 for an ATTR_WDUMMY
+      // cell (the second half of a wide character -- already drawn by
+      // the WIDE cell before it, so it contributes no pixels of its
+      // own). Total pixels across a row stay num_cols * f_width either
+      // way, since a WIDE+WDUMMY pair sums to the same 2*f_width that
+      // two normal columns would have used -- so none of the window/
+      // padding math above needs to change, only these two loops.
+      uint8_t col_width_cache[num_cols];
 
       mp_buffer_info_t reg_buf, bold_buf;
       mp_get_buffer_raise(mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font->globals),
@@ -164,14 +186,12 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
       mp_buffer_info_t box_buf = {0};
       uint32_t box_codepoints[32];
       size_t box_count = 0;
-      mp_obj_t box_font_obj =
-          mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font->globals),
-                          MP_OBJ_NEW_QSTR(qstr_from_str("UNICODE_FONT")));
+      mp_obj_t box_font_obj = dict_get_optional(
+          MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("UNICODE_FONT"));
       if (box_font_obj != MP_OBJ_NULL && box_font_obj != mp_const_none) {
         mp_get_buffer_raise(box_font_obj, &box_buf, MP_BUFFER_READ);
-        mp_obj_t chars_obj =
-            mp_obj_dict_get(MP_OBJ_TO_PTR(vt->font->globals),
-                            MP_OBJ_NEW_QSTR(qstr_from_str("UNICODE_CHARS")));
+        mp_obj_t chars_obj = dict_get_optional(
+            MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("UNICODE_CHARS"));
         if (chars_obj != MP_OBJ_NULL && chars_obj != mp_const_none) {
           box_count = (size_t)mp_obj_get_int(mp_obj_len(chars_obj));
           if (box_count > 32)
@@ -179,6 +199,38 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
           for (size_t j = 0; j < box_count; j++)
             box_codepoints[j] = (uint32_t)mp_obj_get_int(mp_obj_subscr(
                 chars_obj, MP_OBJ_NEW_SMALL_INT(j), MP_OBJ_SENTINEL));
+        }
+      }
+
+      // Wide (double-width) glyph handling, e.g. Chess Symbols via
+      // Unifont -- see ATTR_WIDE/ATTR_WDUMMY in st.c. Optional: most
+      // fonts don't define WIDE_FONT, in which case wide_buf.buf stays
+      // NULL and ATTR_WIDE cells just fall back to rendering narrow,
+      // same as a font missing any other glyph.
+      mp_buffer_info_t wide_buf = {0};
+      uint32_t wide_codepoints[32];
+      size_t wide_count = 0;
+      uint8_t wide_width = f_width;
+      uint8_t wide_row_bytes = wide;
+      mp_obj_t wide_font_obj = dict_get_optional(
+          MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_FONT"));
+      if (wide_font_obj != MP_OBJ_NULL && wide_font_obj != mp_const_none) {
+        mp_get_buffer_raise(wide_font_obj, &wide_buf, MP_BUFFER_READ);
+        mp_obj_t wchars_obj = dict_get_optional(
+            MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_CHARS"));
+        if (wchars_obj != MP_OBJ_NULL && wchars_obj != mp_const_none) {
+          wide_count = (size_t)mp_obj_get_int(mp_obj_len(wchars_obj));
+          if (wide_count > 32)
+            wide_count = 32;
+          for (size_t j = 0; j < wide_count; j++)
+            wide_codepoints[j] = (uint32_t)mp_obj_get_int(mp_obj_subscr(
+                wchars_obj, MP_OBJ_NEW_SMALL_INT(j), MP_OBJ_SENTINEL));
+        }
+        mp_obj_t wwidth_obj = dict_get_optional(
+            MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_WIDTH"));
+        if (wwidth_obj != MP_OBJ_NULL && wwidth_obj != mp_const_none) {
+          wide_width = (uint8_t)mp_obj_get_int(wwidth_obj);
+          wide_row_bytes = (wide_width + 7) / 8;
         }
       }
 
@@ -196,7 +248,34 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
           bg_cache[i] = bg;
         }
 
+        if (ln[col_idx].mode & ATTR_WDUMMY) {
+          // Second half of a wide character -- already drawn by the
+          // WIDE cell before it. Contribute nothing here.
+          font_ptr_cache[i] = NULL;
+          col_width_cache[i] = 0;
+          continue;
+        }
+
         uint32_t char_val = ln[col_idx].u;
+
+        if ((ln[col_idx].mode & ATTR_WIDE) && wide_buf.buf && wide_count > 0) {
+          font_ptr_cache[i] = NULL;
+          for (size_t j = 0; j < wide_count; j++) {
+            if (wide_codepoints[j] == char_val) {
+              font_ptr_cache[i] =
+                  (uint8_t *)wide_buf.buf + j * (f_height * wide_row_bytes);
+              break;
+            }
+          }
+          if (font_ptr_cache[i]) {
+            col_width_cache[i] = wide_width;
+            continue;
+          }
+          // WIDE-marked but this font has no matching wide glyph --
+          // fall through and render narrow as a best-effort fallback.
+        }
+
+        col_width_cache[i] = f_width;
         if (char_val >= first && char_val <= last) {
           uint32_t offset = (char_val - first) * (f_height * wide);
           const uint8_t *base = (ln[col_idx].mode & ATTR_BOLD)
@@ -229,6 +308,13 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
         bool is_last_row = (line_y >= f_height - 2);
 
         for (uint16_t i = 0; i < num_cols; i++) {
+          uint8_t col_width = col_width_cache[i];
+          if (col_width == 0) {
+            // ATTR_WDUMMY -- second half of a wide character, already
+            // drawn by the WIDE cell before it.
+            continue;
+          }
+
           const uint8_t *char_row_data = font_ptr_cache[i];
           int col_idx = _x1 + i;
           bool is_cursor_cell =
@@ -236,12 +322,13 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
           bool has_underline = (ln[col_idx].mode & ATTR_UNDERLINE);
 
           if (char_row_data) {
-            const uint8_t *data_ptr = char_row_data + (line_y * wide);
-            for (uint8_t b_idx = 0; b_idx < wide; b_idx++) {
+            uint8_t row_bytes = (col_width + 7) / 8;
+            const uint8_t *data_ptr = char_row_data + (line_y * row_bytes);
+            for (uint8_t b_idx = 0; b_idx < row_bytes; b_idx++) {
               uint8_t bits = data_ptr[b_idx];
               for (uint8_t b = 0; b < 8; b++) {
                 uint8_t pixel_col = (b_idx * 8) + b;
-                if (pixel_col >= f_width)
+                if (pixel_col >= col_width)
                   break;
 
                 uint16_t final_color =
@@ -273,7 +360,7 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
               }
             }
           } else {
-            for (uint8_t p = 0; p < f_width; p++) {
+            for (uint8_t p = 0; p < col_width; p++) {
               uint16_t final_color = bg_cache[i];
               if (is_cursor_cell) {
                 if ((style <= 2) || (style <= 4 && is_last_row) ||

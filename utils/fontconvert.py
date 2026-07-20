@@ -22,6 +22,10 @@ UNICODE_SYM = ''.join(chr(c) for c in (0x2500, 0x2502, 0x250c, 0x2510, 0x2514, 0
 
 UNICODE_ICONS = ''.join(chr(c) for c in range(0xE000, 0xE196))
 
+# Chess Symbols (U+2654-265F) -- rendered double-width (see --wide-unicode),
+# matching st.c's st_wcwidth() marking these codepoints ATTR_WIDE.
+WIDE_SYM = ''.join(chr(c) for c in range(0x2654, 0x2660))
+
 def font_kind(path):
     lower = path.lower()
     if lower.endswith('.bdf'):
@@ -158,7 +162,9 @@ def encode_chars_bdf(characters, glyphs, char_width, char_height, canvas_top, ca
                     if 0 <= cx < char_width:
                         grid[cy][cx] = 1
         for y in range(char_height):
-            row_bits = ''.join('1' if grid[y][x] else '0' for x in range(char_width))
+            # 0 = ink/foreground, 1 = background -- see matching comment in
+            # encode_chars_ttf().
+            row_bits = ''.join('0' if grid[y][x] else '1' for x in range(char_width))
             bitstring += row_bits + '0' * (row_stride - len(row_bits))
     return bitstring
 
@@ -187,6 +193,10 @@ def main():
     parser.add_argument('-i', '--italic', help='Optional path to the italic font file', default=None)
     parser.add_argument('-bi', '--bold_italic', help='Optional path to the bold+italic font file', default=None)
     parser.add_argument('-u', '--unicode', action='store_true', help='Include unicode box drawing characters')
+    parser.add_argument('--wide-unicode', action='store_true',
+                        help='Include double-width unicode characters (currently Chess Symbols, '
+                             'U+2654-265F) as a separate WIDE_FONT block, rendered at 2x the '
+                             'normal character width -- see ATTR_WIDE handling in st.c/fb.c')
     parser.add_argument('--icons', action='store_true', help='iconic font only')
     parser.add_argument('--force-height', type=int, help='Force a specific pixel height boundary', default=None)
     parser.add_argument('--force-width', type=int, help='Force a specific pixel width boundary', default=None)
@@ -261,6 +271,16 @@ def main():
                 print()
                 emit_block('UNICODE_FONT', encode_chars_bdf(
                     UNICODE_SYM, reg_glyphs, char_width, char_height, canvas_top, canvas_left, bpp, args.font_file))
+
+            if args.wide_unicode:
+                wide_width = char_width * 2
+                codepoints = ', '.join(hex(ord(c)) for c in WIDE_SYM)
+                print()
+                print(f'WIDE_CHARS = ({codepoints},)')
+                print(f'WIDE_WIDTH = {wide_width}')
+                print()
+                emit_block('WIDE_FONT', encode_chars_bdf(
+                    WIDE_SYM, reg_glyphs, wide_width, char_height, canvas_top, canvas_left, bpp, args.font_file))
 
         return
 
@@ -345,6 +365,16 @@ def main():
         print(f'UNICODE_CHARS = ({codepoints},)')
         print()
         emit_block('UNICODE_FONT', encode_chars_ttf(UNICODE_SYM, reg_font, char_width, char_height, y_offset, bpp, sample_p, remap, palette))
+
+    # Emit WIDE Block (double-width characters, e.g. Chess Symbols)
+    if args.wide_unicode:
+        wide_width = char_width * 2
+        codepoints = ', '.join(hex(ord(c)) for c in WIDE_SYM)
+        print()
+        print(f'WIDE_CHARS = ({codepoints},)')
+        print(f'WIDE_WIDTH = {wide_width}')
+        print()
+        emit_block('WIDE_FONT', encode_chars_ttf(WIDE_SYM, reg_font, wide_width, char_height, y_offset, bpp, sample_p, remap, palette))
 
 
 if __name__ == '__main__':

@@ -9,9 +9,13 @@ FONTS = [
     "cozette_mpy_13",
     "gohu_mpy_11",
     "gohu_mpy_14",
+    "scientifica_mpy_10",
+    "spleen_mpy_8",
+    "spleen_mpy_12",
     "tamzen_mpy_11",
     "terminus_mpy_12",
-    "terminus_mpy_14"
+    "terminus_mpy_14",
+    "unifont_mpy_16",
 ]
 
 def main(env, *args):
