@@ -15,19 +15,23 @@ import shell
 
 # Must be called before initializing LCD / Keyboard
 machine.Pin(board.POWERON, machine.Pin.OUT, value=1)
-time.sleep(0.5)
+time.sleep(0.1)
 
 # Pull all SPI CS pins HIGH before touching the bus (prevents bus conflicts)
-machine.Pin(board.TFT_CS, machine.Pin.OUT, value=1)  # display CS
-machine.Pin(board.RADIO_CS, machine.Pin.OUT, value=1)   # LoRa CS
-machine.Pin(board.SDCARD_CS, machine.Pin.OUT, value=1)  # SD CS
-machine.Pin(board.SPI_MISO, machine.Pin.IN, machine.Pin.PULL_UP)  # MISO pull-up
-time.sleep(0.5)
+machine.Pin(board.TFT_CS, machine.Pin.OUT, value=1)
+machine.Pin(board.RADIO_CS, machine.Pin.OUT, value=1)
+machine.Pin(board.SDCARD_CS, machine.Pin.OUT, value=1)
+machine.Pin(board.SPI_MISO, machine.Pin.IN, machine.Pin.PULL_UP)
+time.sleep(0.1)
 
 # Mount SD Card (Experimental; doesn't seem to always work)
 try:
     import sdcard
-    sd_spi = machine.SoftSPI(baudrate=400000, sck=machine.Pin(board.SPI_SCK), mosi=machine.Pin(board.SPI_MOSI), miso=machine.Pin(board.SPI_MISO))
+    sd_spi = machine.SoftSPI(baudrate=400000,
+                             sck=machine.Pin(board.SPI_SCK),
+                             mosi=machine.Pin(board.SPI_MOSI),
+                             miso=machine.Pin(board.SPI_MISO))
+
     sd = sdcard.SDCard(sd_spi, machine.Pin(board.SDCARD_CS, machine.Pin.OUT))
 
     os.mount(os.VfsFat(sd), '/sd')
@@ -36,7 +40,11 @@ except Exception as e:
 
 # Create hardware SPI; this configures the GPIO matrix for pins 40/41.
 # SoftSPI is no longer used after this point.
-spi = machine.SPI(1, baudrate=80000000, sck=machine.Pin(board.SPI_SCK), mosi=machine.Pin(board.SPI_MOSI), miso=machine.Pin(board.SPI_MISO))
+spi = machine.SPI(1,
+                  baudrate=80000000,
+                  sck=machine.Pin(board.SPI_SCK),
+                  mosi=machine.Pin(board.SPI_MOSI),
+                  miso=machine.Pin(board.SPI_MISO))
 
 # The card is already initialized. Only the transport changes.
 # Gives the already-mounted SD card faster hardware SPI for data transfers.
@@ -115,7 +123,11 @@ kbd = tdeck_kbd.Keyboard(sda=board.I2C_SDA,
                          scl=board.I2C_SCL)
 
 # Initialize Trackball
-tdeck_trk.init()
+tdeck_trk.init(up=board.TBOX_G01,
+               down=board.TBOX_G03,
+               left=board.TBOX_G04,
+               right=board.TBOX_G02,
+               click=board.BOOT)
 
 # Combine ST & keyboard into one stream object
 env.kvm = tdeck_kvm.KVM(env.term, kbd)

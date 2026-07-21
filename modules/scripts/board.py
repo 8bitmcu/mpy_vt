@@ -1,4 +1,5 @@
 # T-Deck board pin/parameter definitions.
+# Based on https://github.com/Xinyuan-LilyGO/T-Deck/blob/master/examples/UnitTest/utilities.h
 
 POWERON = 10
 

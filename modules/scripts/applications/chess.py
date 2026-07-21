@@ -14,7 +14,6 @@
 # library, no vendored engine.
 #
 import sys
-import applications.fontcfg
 
 WHITE, BLACK = "W", "B"
 

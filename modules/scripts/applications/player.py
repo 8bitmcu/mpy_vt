@@ -4,6 +4,8 @@
 # License: MIT
 #
 
+import machine
+import micropython
 import os
 import sys
 import time
@@ -59,7 +61,24 @@ def main(env, args):
 
     time.sleep_ms(100)
 
-    while env.audio.is_playing():
+    # Auto-exit when the file finishes on its own, without polling
+    # sys.stdin via select() in the UI loop below (tried that)
+    quit_signaled = False
+
+    def _check_playing_done(_):
+        nonlocal quit_signaled
+        if not quit_signaled and not env.audio.is_playing():
+            quit_signaled = True
+            env.kvm.inject("q")
+
+    def _watchdog_tick(_):
+        micropython.schedule(_check_playing_done, 0)
+
+    watchdog_timer = machine.Timer(2)
+    watchdog_timer.init(period=200, mode=machine.Timer.PERIODIC,
+                        callback=_watchdog_tick)
+
+    while True:
         win = tui.make_window(
                 0, 0,
                 width=env.cols, height=env.rows,
@@ -67,6 +86,9 @@ def main(env, args):
                 fg=252, bg=18)
 
         if ui_state == "MAIN_MENU":
+            if not env.audio.is_playing():
+                ui_state = "QUIT"
+                continue
 
             info = env.audio.tags()
             blk = win.make_block(f"{BOLD}file: {CLR}{CYAN}{display_name}{CLR}\n"
@@ -115,6 +137,8 @@ def main(env, args):
                     break
 
         elif ui_state == "QUIT":
+            watchdog_timer.deinit()
+
             tui.exit_altscreen()
             tui.cursor_show()
 

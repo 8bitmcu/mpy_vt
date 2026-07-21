@@ -186,6 +186,15 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
       // two normal columns would have used -- so none of the window/
       // padding math above needs to change, only these two loops.
       uint8_t col_width_cache[num_cols];
+      // Per-column WIDE-glyph geometry -- which table (icon font vs. the
+      // main font's own WIDE_FONT) actually matched can differ per column,
+      // e.g. Siji icons in the status bar rendering on the same screen as
+      // Unifont chess pieces, so these can't be single shared variables.
+      uint8_t wide_row_bytes_cache[num_cols];
+      uint8_t wide_width_cache[num_cols];
+      uint8_t wide_height_cache[num_cols];
+      int16_t wide_x_off_cache[num_cols];
+      int16_t wide_y_off_cache[num_cols];
 
       // REGULAR/BOLD are normally required -- every font shipped by
       // fontconvert.py's default (non---icons) mode defines them. But
@@ -242,6 +251,15 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
       // Optional either way: no icon_font set, or a main font with
       // neither shape, just means ATTR_WIDE cells render narrow, same as
       // any other missing glyph.
+      //
+      // icon_font and the main font's own WIDE_FONT are NOT mutually
+      // exclusive: an icon font is paired in independently of whatever
+      // the main font currently is (see VT.set_icon_font()), and apps
+      // like chess.py temporarily swap the main font to one with its own
+      // WIDE_FONT (Unifont's chess pieces) while the icon font stays set
+      // for the status bar. So both tables are loaded and checked --
+      // icon font first, then the main font's own WIDE_FONT as a
+      // fallback -- instead of one silently shadowing the other.
       mp_buffer_info_t wide_buf = {0};
       uint32_t wide_codepoints[32];
       size_t wide_count = 0;
@@ -287,16 +305,69 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
         }
       }
 
+      // Fallback table: the main font's own WIDE_FONT. Only worth loading
+      // separately when an icon font is actually set -- otherwise
+      // icon_font_mod above already IS vt->font and this would just be a
+      // duplicate lookup of the same table.
+      mp_buffer_info_t wide_buf2 = {0};
+      uint32_t wide_codepoints2[32];
+      size_t wide_count2 = 0;
+      uint32_t wide_first2 = 0;
+      uint32_t wide_range_count2 = 0;
+      uint8_t wide_width2 = f_width;
+      uint8_t wide_height2 = f_height;
+      uint8_t wide_row_bytes2 = wide;
+      if (vt->icon_font) {
+        mp_obj_t wide_font_obj2 = dict_get_optional(
+            MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_FONT"));
+        if (wide_font_obj2 != MP_OBJ_NULL && wide_font_obj2 != mp_const_none) {
+          mp_get_buffer_raise(wide_font_obj2, &wide_buf2, MP_BUFFER_READ);
+          mp_obj_t wfirst_obj2 = dict_get_optional(
+              MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_FIRST"));
+          mp_obj_t wrange_count_obj2 = dict_get_optional(
+              MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_COUNT"));
+          if (wfirst_obj2 != MP_OBJ_NULL && wfirst_obj2 != mp_const_none &&
+              wrange_count_obj2 != MP_OBJ_NULL && wrange_count_obj2 != mp_const_none) {
+            wide_first2 = (uint32_t)mp_obj_get_int(wfirst_obj2);
+            wide_range_count2 = (uint32_t)mp_obj_get_int(wrange_count_obj2);
+          }
+          mp_obj_t wchars_obj2 = dict_get_optional(
+              MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_CHARS"));
+          if (wchars_obj2 != MP_OBJ_NULL && wchars_obj2 != mp_const_none) {
+            wide_count2 = (size_t)mp_obj_get_int(mp_obj_len(wchars_obj2));
+            if (wide_count2 > 32)
+              wide_count2 = 32;
+            for (size_t j = 0; j < wide_count2; j++)
+              wide_codepoints2[j] = (uint32_t)mp_obj_get_int(mp_obj_subscr(
+                  wchars_obj2, MP_OBJ_NEW_SMALL_INT(j), MP_OBJ_SENTINEL));
+          }
+          mp_obj_t wwidth_obj2 = dict_get_optional(
+              MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_WIDTH"));
+          if (wwidth_obj2 != MP_OBJ_NULL && wwidth_obj2 != mp_const_none) {
+            wide_width2 = (uint8_t)mp_obj_get_int(wwidth_obj2);
+            wide_row_bytes2 = (wide_width2 + 7) / 8;
+          }
+          mp_obj_t wheight_obj2 = dict_get_optional(
+              MP_OBJ_TO_PTR(vt->font->globals), qstr_from_str("WIDE_HEIGHT"));
+          if (wheight_obj2 != MP_OBJ_NULL && wheight_obj2 != mp_const_none) {
+            wide_height2 = (uint8_t)mp_obj_get_int(wheight_obj2);
+          }
+        }
+      }
+
       // Wide glyphs always occupy a fixed 2*f_width x f_height cell (that's
       // what ATTR_WIDE + the following ATTR_WDUMMY actually reserve in the
-      // grid -- see col_width_cache below), regardless of the icon font's
-      // own glyph size. wide_width/wide_height describe the actual bitmap
-      // instead, centered within that cell: padded on all sides if
+      // grid -- see col_width_cache below), regardless of the source
+      // table's own glyph size. wide_width/wide_height describe the actual
+      // bitmap instead, centered within that cell: padded on all sides if
       // smaller, clipped evenly if larger. Lets a fixed-size icon font
       // (e.g. Siji) pair with any main font, not just one whose width
-      // happens to be exactly half the icon's.
+      // happens to be exactly half the icon's. Computed separately for
+      // each table since the two can have different WIDE_WIDTH/HEIGHT.
       int16_t wide_x_off = ((int16_t)(2 * f_width) - (int16_t)wide_width) / 2;
       int16_t wide_y_off = ((int16_t)f_height - (int16_t)wide_height) / 2;
+      int16_t wide_x_off2 = ((int16_t)(2 * f_width) - (int16_t)wide_width2) / 2;
+      int16_t wide_y_off2 = ((int16_t)f_height - (int16_t)wide_height2) / 2;
 
       // Icon glyph handling (fontconvert.py --icons), e.g. Siji. One
       // contiguous codepoint range starting at ICON_FIRST, so unlike
@@ -358,6 +429,14 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
           // render loop below), not a narrower one.
           col_width_cache[i] = 2 * f_width;
           font_ptr_cache[i] = NULL;
+          // Defaults to the primary (icon font) table's geometry;
+          // overwritten below if the fallback table is what matches.
+          wide_row_bytes_cache[i] = wide_row_bytes;
+          wide_width_cache[i] = wide_width;
+          wide_height_cache[i] = wide_height;
+          wide_x_off_cache[i] = wide_x_off;
+          wide_y_off_cache[i] = wide_y_off;
+
           if (wide_buf.buf) {
             if (wide_range_count > 0 && char_val >= wide_first &&
                 char_val < wide_first + wide_range_count) {
@@ -369,6 +448,28 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
                 if (wide_codepoints[j] == char_val) {
                   font_ptr_cache[i] = (uint8_t *)wide_buf.buf +
                                       j * (wide_height * wide_row_bytes);
+                  break;
+                }
+              }
+            }
+          }
+
+          if (!font_ptr_cache[i] && wide_buf2.buf) {
+            wide_row_bytes_cache[i] = wide_row_bytes2;
+            wide_width_cache[i] = wide_width2;
+            wide_height_cache[i] = wide_height2;
+            wide_x_off_cache[i] = wide_x_off2;
+            wide_y_off_cache[i] = wide_y_off2;
+            if (wide_range_count2 > 0 && char_val >= wide_first2 &&
+                char_val < wide_first2 + wide_range_count2) {
+              uint32_t index = char_val - wide_first2;
+              font_ptr_cache[i] = (uint8_t *)wide_buf2.buf +
+                                  index * (wide_height2 * wide_row_bytes2);
+            } else if (wide_count2 > 0) {
+              for (size_t j = 0; j < wide_count2; j++) {
+                if (wide_codepoints2[j] == char_val) {
+                  font_ptr_cache[i] = (uint8_t *)wide_buf2.buf +
+                                      j * (wide_height2 * wide_row_bytes2);
                   break;
                 }
               }
@@ -438,16 +539,16 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
             // entirely outside the bitmap's vertical/horizontal extent
             // is indistinguishable from "no glyph" for cursor/underline
             // purposes -- there's no ink there to invert.
-            int16_t icon_row = (int16_t)line_y - wide_y_off;
-            bool row_in_range = (icon_row >= 0 && icon_row < wide_height);
+            int16_t icon_row = (int16_t)line_y - wide_y_off_cache[i];
+            bool row_in_range = (icon_row >= 0 && icon_row < wide_height_cache[i]);
             const uint8_t *row_ptr =
-                row_in_range ? (char_row_data + (uint32_t)icon_row * wide_row_bytes)
+                row_in_range ? (char_row_data + (uint32_t)icon_row * wide_row_bytes_cache[i])
                              : NULL;
 
             for (uint8_t pixel_col = 0; pixel_col < col_width; pixel_col++) {
-              int16_t icon_col = (int16_t)pixel_col - wide_x_off;
+              int16_t icon_col = (int16_t)pixel_col - wide_x_off_cache[i];
               bool ink = false;
-              if (row_ptr != NULL && icon_col >= 0 && icon_col < wide_width) {
+              if (row_ptr != NULL && icon_col >= 0 && icon_col < wide_width_cache[i]) {
                 uint8_t byte = row_ptr[icon_col / 8];
                 ink = !(byte & (0x80 >> (icon_col % 8)));
               }

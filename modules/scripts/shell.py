@@ -56,7 +56,7 @@ def _app(module, tui=False, audio=False, rec=False, radio=False):
                     return
 
                 try:
-                    lr.begin(freq=int(config["freq"]),
+                    lr.begin(freq=float(config["freq"]),
                              bw=board.RADIO_BANDWIDTH,
                              sf=board.RADIO_SF,
                              cr=board.RADIO_CR,
@@ -233,7 +233,7 @@ class Shell:
         ver = sys.implementation.version
         version_str = f"{ver[0]}.{ver[1]}.{ver[2]}"
         # TODO: move versioning to makefile
-        print(f"vtOS v0.1.9; MicroPython v{version_str}\nType 'help' to see commands.")
+        print(f"vtOS v0.1.10; MicroPython v{version_str}\nType 'help' to see commands.")
 
         while self.running:
             try:
