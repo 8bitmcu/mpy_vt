@@ -71,6 +71,13 @@ uint16_t map_st_color(int number) {
   return (uint16_t)((r565 >> 8) | (r565 << 8));
 }
 
+// Single real definitions -- see the comment on the extern declarations
+// in fb.h for why these must not be `static` here.
+Glyph top_line_now[256];
+Glyph top_line_last[256];
+Glyph bot_line_now[256];
+Glyph bot_line_last[256];
+
 void draw_bar_ansi(const char *text, size_t len, int bar_type) {
   if (!current_vt_obj)
     return;
@@ -82,8 +89,34 @@ void draw_bar_ansi(const char *text, size_t len, int bar_type) {
   TCursor save_cursor = term.c;
   int save_esc = term.esc;
   Line *original_lines = term.line;
-  Line virtual_line = now;
-  term.line = &virtual_line;
+  // term.line is Line* -- a pointer to an ARRAY of row pointers, indexed
+  // as term.line[y]. A single `Line virtual_line = now;` only backs
+  // term.line[0]; if bar text ever overflows term.col, tputc()'s
+  // unconditional wrap check (`term.c.x + 1 > term.col`, fires
+  // regardless of wrap mode) calls tnewline() -> tmoveto(), which clamps
+  // term.c.y to [0, term.row - 1] -- the REAL terminal's full height, not
+  // just +1. tsetchar() then dereferences term.line[term.c.y] as a
+  // Glyph* -- reading whatever garbage sits past a too-small stack
+  // buffer and writing through it. Sized to term.row (every entry
+  // aliased to the same `now` buffer) so term.c.y can never land outside
+  // it, regardless of how many wraps occur -- an unexpected wrap just
+  // harmlessly overlaps the one real row instead of corrupting memory.
+  Line virtual_line[term.row];
+  for (int i = 0; i < term.row; i++)
+    virtual_line[i] = now;
+  term.line = virtual_line;
+
+  // csiescseq/strescseq are the accumulation buffers for an in-progress
+  // CSI/OSC-style escape sequence -- separate globals from `term`, shared
+  // with whatever the main terminal is mid-way through parsing (e.g. one
+  // of vttui's own SGR color codes). Save and reset them the same way as
+  // term.c/term.line/term.esc above, or the status bar's own escape
+  // sequences silently clobber the interrupted sequence's accumulated
+  // bytes even though term.esc itself now correctly round-trips.
+  CSIEscape save_csiescseq = csiescseq;
+  STREscape save_strescseq = strescseq;
+  memset(&csiescseq, 0, sizeof(csiescseq));
+  memset(&strescseq, 0, sizeof(strescseq));
 
   // Reset buffer and cursor
   memset(now, 0, sizeof(Glyph) * 256);
@@ -113,7 +146,9 @@ void draw_bar_ansi(const char *text, size_t len, int bar_type) {
 
   term.line = original_lines;
   term.c = save_cursor;
-  (void)save_esc;
+  term.esc = save_esc;
+  csiescseq = save_csiescseq;
+  strescseq = save_strescseq;
 
   // Dirty check: Compare results
   if (memcmp(now, last, term.col * sizeof(Glyph)) == 0) {
@@ -127,9 +162,25 @@ void draw_bar_ansi(const char *text, size_t len, int bar_type) {
   memcpy(last, now, term.col * sizeof(Glyph));
 }
 
-void xdrawline(Line ln, int _x1, int _y1, int _x2) {
+// Renders one full text row (all f_height pixel rows, including any
+// right-margin padding) or status bar into a caller-supplied RGB565
+// buffer, without touching the SPI bus or display state at all. This is
+// the part of xdrawline() that actually turns Glyphs into pixels;
+// xdrawline() below is now just this plus a burst write to the physical
+// display. Split out so anything else that wants the same pixels without
+// a physical redraw -- e.g. a VNC server pulling rows flagged dirty in
+// term.dirty[] -- can call it directly with its own buffer, instead of
+// the pixels only ever landing in display->i2c_buffer.
+//
+// out_cap is out_buf's capacity in uint16_t pixels (NOT bytes). Returns a
+// row_render_t with .pixel_count == 0 if the row is off-screen or out_buf
+// is missing/too small -- callers must check that before trusting the
+// rest of the struct.
+row_render_t render_row_rgb565(Line ln, int _x1, int _y1, int _x2,
+                               uint16_t *out_buf, size_t out_cap) {
+  row_render_t result = {0};
   if (!current_vt_obj)
-    return;
+    return result;
 
   vt_VT_obj_t *vt = current_vt_obj;
   st7789_ST7789_obj_t *display = vt->display_drv;
@@ -157,7 +208,7 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
   }
   uint16_t num_cols = _x2 - _x1;
 
-  if (display->i2c_buffer) {
+  {
     uint32_t buf_idx = 0;
     uint16_t x_end = (x_start + (num_cols * f_width)) - 1;
 
@@ -168,10 +219,13 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
     }
 
     if (x_end < display->width) {
-      set_window(display, x_start, y_start, x_end, y_start + f_height - 1);
-
       uint16_t window_width = x_end - x_start + 1;
       uint16_t text_rendered_width = num_cols * f_width;
+
+      // Bail before touching out_buf if it's missing or too small --
+      // out_cap is in pixels, not bytes.
+      if (!out_buf || (size_t)window_width * f_height > out_cap)
+        return result;
 
       // Caches
       uint16_t fg_cache[num_cols];
@@ -580,7 +634,7 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
                 final_color = fg_cache[i];
               }
 
-              display->i2c_buffer[buf_idx++] = final_color;
+              out_buf[buf_idx++] = final_color;
             }
           } else if (char_row_data) {
             uint8_t row_bytes = (col_width + 7) / 8;
@@ -616,7 +670,7 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
                   final_color = fg_cache[i];
                 }
 
-                display->i2c_buffer[buf_idx++] = final_color;
+                out_buf[buf_idx++] = final_color;
                 bits <<= 1;
               }
             }
@@ -631,7 +685,7 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
               } else if (has_underline && is_last_row) {
                 final_color = fg_cache[i];
               }
-              display->i2c_buffer[buf_idx++] = final_color;
+              out_buf[buf_idx++] = final_color;
             }
           }
         }
@@ -647,18 +701,51 @@ void xdrawline(Line ln, int _x1, int _y1, int _x2) {
           }
           uint16_t pad_pixels = window_width - text_rendered_width;
           for (uint16_t p = 0; p < pad_pixels; p++) {
-            display->i2c_buffer[buf_idx++] = pad_bg;
+            out_buf[buf_idx++] = pad_bg;
           }
         }
       }
 
-      // SPI Burst for the core row line
-      mp_hal_pin_write(display->dc, 1);
-      mp_hal_pin_write(display->cs, 0);
-      write_spi(display->spi_obj, (uint8_t *)display->i2c_buffer, buf_idx * 2);
-      mp_hal_pin_write(display->cs, 1);
+      result.x_start = x_start;
+      result.y_start = y_start;
+      result.x_end = x_end;
+      result.window_width = window_width;
+      result.f_height = f_height;
+      result.pixel_count = buf_idx;
     }
   }
+
+  return result;
+}
+
+// Physical-display half of the old xdrawline(): renders the row via
+// render_row_rgb565() into display->i2c_buffer (the same resident
+// scratch buffer it always used), then bursts it out over SPI. Any
+// caller that just wants the pixels -- not a screen update -- should
+// call render_row_rgb565() directly instead, with its own buffer.
+void xdrawline(Line ln, int _x1, int _y1, int _x2) {
+  if (!current_vt_obj)
+    return;
+
+  vt_VT_obj_t *vt = current_vt_obj;
+  st7789_ST7789_obj_t *display = vt->display_drv;
+  if (!display->i2c_buffer)
+    return;
+
+  row_render_t r = render_row_rgb565(ln, _x1, _y1, _x2, display->i2c_buffer,
+                                     display->buffer_size / sizeof(uint16_t));
+  if (r.pixel_count == 0)
+    return;
+
+  set_window(display, r.x_start, r.y_start, r.x_end,
+            r.y_start + r.f_height - 1);
+
+  // SPI Burst for the core row line
+  mp_hal_pin_write(display->dc, 1);
+  mp_hal_pin_write(display->cs, 0);
+  write_spi(display->spi_obj, (uint8_t *)display->i2c_buffer,
+           r.pixel_count * 2);
+  mp_hal_pin_write(display->cs, 1);
 }
 
 // Fills the pixel band below the last text row, when the font's height

@@ -12,6 +12,7 @@
 #include "py/objstr.h"
 #include "py/runtime.h"
 #include "py/stream.h"
+#include "esp_system.h"
 
 #include "fb.h"
 #include "mpfile.h"
@@ -251,6 +252,43 @@ static mp_obj_t vt_VT_set_icon_font(mp_obj_t self_in, mp_obj_t font_obj) {
 }
 MP_DEFINE_CONST_FUN_OBJ_2(vt_VT_set_icon_font_obj, vt_VT_set_icon_font);
 
+// vt.render_row(y, buffer) -> int bytes written (0 if the row is out of
+// range or buffer is missing/too small). y follows the same convention
+// as draw_bar_ansi()'s bar_type: -1 = top bar, -2 = bottom bar, 0..rows-1
+// = a terminal text row (via TLINE(), so scrollback-aware like the
+// physical display). buffer must support the buffer protocol (a
+// bytearray) and be at least width * font_height * 2 bytes -- same
+// sizing rule as ST7789's buffer_size.
+//
+// This is render_row_rgb565() (fb.c) exposed to Python with no SPI/
+// display side effects at all -- for pulling the exact same pixels a
+// screen redraw would produce, without touching the physical screen.
+// e.g. a VNC server walking term.dirty[] for changed rows.
+static mp_obj_t vt_VT_render_row(mp_obj_t self_in, mp_obj_t y_obj,
+                                 mp_obj_t buf_obj) {
+  int y = mp_obj_get_int(y_obj);
+
+  Line ln;
+  if (y == -1) {
+    ln = top_line_now;
+  } else if (y == -2) {
+    ln = bot_line_now;
+  } else if (y >= 0 && y < term.row) {
+    ln = TLINE(y);
+  } else {
+    return mp_obj_new_int(0);
+  }
+
+  mp_buffer_info_t bufinfo;
+  mp_get_buffer_raise(buf_obj, &bufinfo, MP_BUFFER_WRITE);
+
+  row_render_t r = render_row_rgb565(ln, 0, y, term.col,
+                                     (uint16_t *)bufinfo.buf,
+                                     bufinfo.len / sizeof(uint16_t));
+  return mp_obj_new_int((mp_int_t)(r.pixel_count * 2));
+}
+MP_DEFINE_CONST_FUN_OBJ_3(vt_VT_render_row_obj, vt_VT_render_row);
+
 // Locals Dict (Methods attached to the object)
 // Even if empty, it's good practice to define it to avoid segfaults on dir(obj)
 static const mp_rom_map_elem_t vtinal_locals_dict_table[] = {
@@ -268,6 +306,7 @@ static const mp_rom_map_elem_t vtinal_locals_dict_table[] = {
      MP_ROM_PTR(&vt_vt_bottom_bar_invalidate_obj)},
     {MP_ROM_QSTR(MP_QSTR_repaint_bars), MP_ROM_PTR(&vt_vt_repaint_bars_obj)},
     {MP_ROM_QSTR(MP_QSTR_set_icon_font), MP_ROM_PTR(&vt_VT_set_icon_font_obj)},
+    {MP_ROM_QSTR(MP_QSTR_render_row), MP_ROM_PTR(&vt_VT_render_row_obj)},
 };
 
 static MP_DEFINE_CONST_DICT(vt_VT_locals_dict, vtinal_locals_dict_table);
@@ -298,9 +337,20 @@ MP_DEFINE_CONST_OBJ_TYPE(vt_VT_type, MP_QSTR_VT, MP_TYPE_FLAG_NONE, make_new,
 
 //  Module Definition
 
+// machine.reset_cause() buckets ESP-IDF's ESP_RST_INT_WDT/ESP_RST_TASK_WDT/
+// ESP_RST_WDT (the last being the RTC-level "super watchdog", which
+// doesn't go through the software panic handler at all) into a single
+// WDT_RESET. Exposes the raw esp_reset_reason_t int instead, for
+// distinguishing which watchdog (if any) actually caused a reset.
+static mp_obj_t vt_reset_reason(void) {
+  return mp_obj_new_int((mp_int_t)esp_reset_reason());
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(vt_reset_reason_obj, vt_reset_reason);
+
 static const mp_rom_map_elem_t vt_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_vt)},
     {MP_ROM_QSTR(MP_QSTR_VT), MP_ROM_PTR(&vt_VT_type)},
+    {MP_ROM_QSTR(MP_QSTR_reset_reason), MP_ROM_PTR(&vt_reset_reason_obj)},
 };
 
 static MP_DEFINE_CONST_DICT(vt_module_globals, vt_module_globals_table);

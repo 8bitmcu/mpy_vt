@@ -47,7 +47,12 @@ static int write_uint(char *buf, unsigned int n) {
 
 // ESC[row+1;col+1H  ESC[0;{1;}38;5;fg;48;5;bgm
 static void vttui_begin(int col, int row, uint32_t fg, uint32_t bg, bool bold) {
-  char buf[48];
+  // fg/bg/row/col are meant to be small (ANSI-256 index, screen
+  // coordinate) but nothing clamps them before they get here -- write_uint()
+  // emits up to 10 digits for a full uint32_t, and the worst case (two
+  // 10-digit coordinates + two 10-digit colors) is 62 bytes, so this needs
+  // real headroom rather than a size tuned to the expected/common case.
+  char buf[80];
   int i = 0;
   buf[i++] = '\033';
   buf[i++] = '[';
@@ -82,7 +87,10 @@ static void vttui_begin(int col, int row, uint32_t fg, uint32_t bg, bool bold) {
 
 // ESC[0;{1;}38;5;fg;48;5;bgm  (color only, no cursor move)
 static void vttui_sgr(uint32_t fg, uint32_t bg, bool bold) {
-  char buf[32];
+  // See the same-sized-concern comment in vttui_begin() above -- worst
+  // case (two 10-digit colors) is 38 bytes, not the ~24 the expected
+  // 3-digit-color case needs.
+  char buf[48];
   int i = 0;
   buf[i++] = '\033';
   buf[i++] = '[';
@@ -111,7 +119,12 @@ static void vttui_sgr(uint32_t fg, uint32_t bg, bool bold) {
 
 // ESC[row+1;col+1H  (position only, no attribute change)
 static void vttui_move(int col, int row) {
-  char buf[16];
+  // Same headroom concern as vttui_begin()/vttui_sgr(): a negative row/col
+  // (e.g. from a miscalculated scroll position) becomes a huge value once
+  // cast to unsigned, and write_uint() can emit up to 10 digits for each
+  // -- worst case is 24 bytes, not the ~8 the expected small-coordinate
+  // case needs.
+  char buf[32];
   int i = 0;
   buf[i++] = '\033';
   buf[i++] = '[';

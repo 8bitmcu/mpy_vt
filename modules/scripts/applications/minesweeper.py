@@ -60,9 +60,9 @@ def status_row(rows):
 
 def status_message(game_state):
     if game_state == "WON":
-        return "\x1b[32mYOU WIN!\x1b[0m Press 'q' to exit."
+        return "\x1b[32mYOU WIN!\x1b[0m Press esc to exit."
     elif game_state == "LOST":
-        return "\x1b[31mGAME OVER!\x1b[0m Press 'q' to exit."
+        return "\x1b[31mGAME OVER!\x1b[0m Press esc to exit."
     return ""
 
 def goto(row, col):
@@ -224,7 +224,7 @@ def main(env, args):
                             if len(revealed) == (cols * rows) - total_mines:
                                 game_state = "WON"
 
-            if ch == 'q' or ch == '\x1b':
+            if ch == '\x1b':
                 sys.stdout.write(SHOW_CURSOR + "\nExiting...\n")
                 break
 

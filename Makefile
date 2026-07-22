@@ -111,3 +111,22 @@ core_dump:
 			espcoredump.py --chip esp32s3 --port $(PORT) \
 			info_corefile --core-format elf \
 			/opt/micropython/ports/esp32/build-$(BOARD)/micropython.elf"
+
+debug:
+	docker run --rm -it --privileged \
+		-v /dev/bus/usb:/dev/bus/usb \
+		--device=$(PORT):$(PORT) \
+		-v $(MPY_VOLUME):/opt/micropython \
+		$(IDF_IMAGE) \
+		/bin/bash -c "source /opt/esp/idf/export.sh && \
+			openocd \
+				-c 'source [find interface/esp_usb_jtag.cfg]' \
+				-c 'espusbjtag vid_pid 0x303a 0x4001' \
+				-c 'source [find target/esp32s3.cfg]' \
+				>/tmp/openocd.log 2>&1 & \
+			sleep 8 && \
+			echo '--- Attaching now, board should still be healthy. Trigger the crash from the device keyboard, THEN Ctrl-C here and run: thread apply all bt ---' && \
+			xtensa-esp32s3-elf-gdb /opt/micropython/ports/esp32/build-$(BOARD)/micropython.elf \
+				-ex 'target remote :3333' \
+				-ex 'continue'; \
+			cat /tmp/openocd.log"

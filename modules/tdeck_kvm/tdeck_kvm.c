@@ -104,6 +104,14 @@ static mp_uint_t kvm_ioctl(mp_obj_t self_in, mp_uint_t request, uintptr_t arg,
     uintptr_t flags = arg;
     uintptr_t ret = 0;
 
+    // kvm_read() serves injected "ghost key" data (see internal_inject_n())
+    // before ever touching the keyboard -- poll must report readable for
+    // that case too, or select()-based callers can be told "not ready"
+    // while a read() would actually return data immediately.
+    if ((flags & MP_STREAM_POLL_RD) && inject_tail != inject_head) {
+      ret |= MP_STREAM_POLL_RD;
+    }
+
     // Read poll from Keyboard
     const mp_stream_p_t *k_stream = (const mp_stream_p_t *)MP_OBJ_TYPE_GET_SLOT(
         mp_obj_get_type(self->kbd_instance), protocol);

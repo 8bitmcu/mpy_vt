@@ -74,7 +74,7 @@ def main(env, args):
     def _watchdog_tick(_):
         micropython.schedule(_check_playing_done, 0)
 
-    watchdog_timer = machine.Timer(2)
+    watchdog_timer = machine.Timer(2)  # this port has no -1/virtual timer; 2 is unused while the player runs
     watchdog_timer.init(period=200, mode=machine.Timer.PERIODIC,
                         callback=_watchdog_tick)
 

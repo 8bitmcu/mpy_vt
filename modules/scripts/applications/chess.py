@@ -523,9 +523,9 @@ def status_text(state, message):
     turn_name = "White" if state.turn == WHITE else "Black"
     if status == "checkmate":
         winner = "Black" if state.turn == WHITE else "White"
-        return MSG_FG + f"Checkmate -- {winner} wins. 'q' to quit." + RESET
+        return MSG_FG + f"Checkmate: {winner} wins. esc to quit." + RESET
     if status == "stalemate":
-        return MSG_FG + "Stalemate -- draw. 'q' to quit." + RESET
+        return MSG_FG + "Stalemate: draw. esc to quit." + RESET
     check = " (check)" if in_check(state, state.turn) else ""
     return LABEL_FG + f"{turn_name} to move{check}" + RESET
 

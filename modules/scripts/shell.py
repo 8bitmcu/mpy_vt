@@ -105,6 +105,9 @@ class Shell:
         self.alias_file = "/flash/.favs.json"
         self._load_aliases()
 
+
+        self.register("webvncd",     _app("applications.webvncd"))
+        self.register("vncd",        _app("applications.vncd"))
         self.register("chess",       _app("applications.chess"))
         self.register("c2",          _app("applications.c2"))
         self.register("ftp",         _app("applications.ftp"))
@@ -296,6 +299,7 @@ class Shell:
 
             elif cmd_name == "dbgrst":
                 import machine
+                import vt
                 _reset_names = {
                     machine.PWRON_RESET: "PWRON_RESET (power-on)",
                     machine.HARD_RESET: "HARD_RESET (panic / external reset)",
@@ -305,6 +309,27 @@ class Shell:
                 }
                 _reset_cause = machine.reset_cause()
                 print("Last reset cause: %s [%d]" % (_reset_names.get(_reset_cause, "UNKNOWN"), _reset_cause))
+
+                # machine.reset_cause() buckets several distinct ESP-IDF
+                # reset reasons (e.g. INT_WDT/TASK_WDT/the RTC-level WDT)
+                # into one WDT_RESET -- vt.reset_reason() surfaces the raw
+                # esp_reset_reason_t value so they can be told apart.
+                _esp_reset_names = {
+                    0: "ESP_RST_UNKNOWN",
+                    1: "ESP_RST_POWERON",
+                    2: "ESP_RST_EXT",
+                    3: "ESP_RST_SW",
+                    4: "ESP_RST_PANIC",
+                    5: "ESP_RST_INT_WDT",
+                    6: "ESP_RST_TASK_WDT",
+                    7: "ESP_RST_WDT (RTC-level watchdog)",
+                    8: "ESP_RST_DEEPSLEEP",
+                    9: "ESP_RST_BROWNOUT",
+                    10: "ESP_RST_SDIO",
+                }
+                _esp_reset_cause = vt.reset_reason()
+                print("ESP reset reason: %s [%d]" % (
+                    _esp_reset_names.get(_esp_reset_cause, "UNKNOWN"), _esp_reset_cause))
                 continue
 
             elif cmd_name == "exit":

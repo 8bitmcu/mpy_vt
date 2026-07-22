@@ -94,6 +94,8 @@ You can execute the following commands from the built-in shell:
 | `rss` | RSS Reader; connect to an http or https rss endpoint and retreives the titles |
 | `telnet` | Connects to a telnet server |
 | `vi` | Opens the vi port |
+| `vncd` | Launches a VNC Server. Known compatible with TigerVNC. Terribly slow |
+| `webvncd` | Launches a web "VNC"-like server. Faster than `vncd` |
 | `zm` | Launches `dfrotz`, the ZMachine interpreter |
 
 To get out of the shell, type `exit`. This will bring you to the MicroPython shell, where you can type in python expressions. To get back to the built-in shell, type `sh` in the MicroPython shell.

@@ -8,6 +8,15 @@ import socket
 import select
 import random
 import sys
+import time
+import errno
+
+# Minimum time between chat_win/env.tui redraws. A burst of several IRC
+# lines can arrive in one recv() (registration notices, a big NAMES reply,
+# etc.) -- drawing on every single line fires off back-to-back SPI writes
+# with no gap between them, which was found to trip a WDT_RESET. Throttling
+# to this interval keeps redraws from piling up during a burst.
+_DRAW_INTERVAL_MS = 50
 
 def _parse(line):
     """Parse a raw IRC line.
@@ -81,7 +90,36 @@ class IRCClient:
 
         addr = socket.getaddrinfo(self.host, self.port)[0][-1]
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect(addr)
+
+        # Non-blocking + select-polled connect, for the same reason
+        # _recv_line() polls instead of blocking: a raw blocking connect()
+        # can sit in one uninterrupted C call for as long as the TCP
+        # handshake takes, starving the fast_loop timer's
+        # micropython.schedule() queue the whole time.
+        self.sock.setblocking(False)
+        try:
+            self.sock.connect(addr)
+        except OSError as e:
+            if e.args[0] not in (errno.EAGAIN, errno.EINPROGRESS):
+                raise
+        deadline = time.ticks_add(time.ticks_ms(), 10000)
+        while True:
+            _, w, _ = select.select([], [self.sock], [], 0.1)
+            if w:
+                break
+            if time.ticks_diff(deadline, time.ticks_ms()) <= 0:
+                self.sock.close()
+                self.sock = None
+                raise OSError("connect timed out")
+        self.sock.setblocking(True)
+        try:
+            err = self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
+        except AttributeError:
+            err = 0  # getsockopt not implemented on this port -- skip the check
+        if err != 0:
+            self.sock.close()
+            self.sock = None
+            raise OSError(err, "connect failed")
 
         if password:
             self.raw(f'PASS {password}')
@@ -133,8 +171,19 @@ class IRCClient:
             return msg
 
     def _recv_line(self):
-        """Read bytes until \\r\\n, buffering partial data."""
+        """Read bytes until \\r\\n, buffering partial data.
+
+        Polls with a short select() timeout rather than calling recv()
+        directly -- the server can go silent for several seconds during
+        registration (ident/rDNS lookup), and a single uninterrupted
+        blocking recv() keeps the interpreter from ever returning to the
+        bytecode loop for that whole stretch, starving anything driven by
+        micropython.schedule() (e.g. the statusbar's Timer callback) until
+        its schedule queue backs up."""
         while b'\r\n' not in self._buf:
+            r, _, _ = select.select([self.sock], [], [], 0.1)
+            if not r:
+                continue
             chunk = self.sock.recv(512)
             if not chunk:
                 return None
@@ -173,12 +222,17 @@ def main(env, args):
     client = IRCClient(host, port)
     client.connect(nick)
 
+    last_draw = time.ticks_ms()
     while True:
         msg = client.read()
         chat_win.push(format_msg(msg) + "\n")
-        chat_win.draw()
-        env.tui.draw()
-        if msg and msg[1] in ('376', '422'):
+        done = msg and msg[1] in ('376', '422')
+        now = time.ticks_ms()
+        if done or time.ticks_diff(now, last_draw) >= _DRAW_INTERVAL_MS:
+            chat_win.draw()
+            env.tui.draw()
+            last_draw = now
+        if done:
             break
 
     if channel:
@@ -186,63 +240,81 @@ def main(env, args):
 
     env.tui.cursor_show()
 
+    last_draw = time.ticks_ms()
     while True:
-        chat_win.draw()
-        chat_input.draw()
-        env.tui.draw()
+        now = time.ticks_ms()
+        if time.ticks_diff(now, last_draw) >= _DRAW_INTERVAL_MS:
+            chat_win.draw()
+            chat_input.draw()
+            env.tui.draw()
+            last_draw = now
 
-        rlist, _, _ = select.select([client.sock, sys.stdin], [], [], 0.1)
+        # Polled separately rather than combined into one
+        # select([client.sock, sys.stdin], ...) call -- a real socket and
+        # a custom dupterm-backed stream object together in a single
+        # select() is an unusual combination (most code selects on one or
+        # the other, not both), and the registration loop's socket-only
+        # select() has been solid while this combined form hasn't.
+        sock_ready, _, _ = select.select([client.sock], [], [], 0)
+        stdin_ready, _, _ = select.select([sys.stdin], [], [], 0)
+        if not sock_ready and not stdin_ready:
+            time.sleep_ms(100)
 
-        for r in rlist:
-            if r is client.sock:
-                msg = client.poll()
-                if msg:
-                    if msg[1] == 'PRIVMSG':
-                        chat_win.push(CYAN + format_msg(msg) + CLR + "\n")
-                    else:
-                        chat_win.push(format_msg(msg) + "\n")
-            else:
+        if sock_ready:
+            msg = client.poll()
+            if msg:
+                if msg[1] == 'PRIVMSG':
+                    chat_win.push(CYAN + format_msg(msg) + CLR + "\n")
+                else:
+                    chat_win.push(format_msg(msg) + "\n")
+
+        if stdin_ready:
+            try:
                 char = sys.stdin.read(1)
-                if char in ('\r', '\n'):
-                    text = chat_input.value
-                    if not text:
-                        continue
+            except UnicodeError:
+                char = None
+            if char is None:
+                pass
+            elif char in ('\r', '\n'):
+                text = chat_input.value
+                if not text:
+                    pass
 
-                    # Handle internal commands
-                    if text.startswith("/nick "):
-                        new_nick = text.split(" ", 1)[1]
-                        client.raw(f"NICK {new_nick}")
-                        nick = new_nick # Update local variable for UI formatting
-                        chat_win.push(f"--- Nick changed to {nick} ---\n")
-                        chat_input.set("")
-                    elif text.startswith("/join "):
-                        target_channel = text.split(" ", 1)[1]
-                        client.join(target_channel)
-                        channel = target_channel # Update local channel for sending
-                        chat_win.push(f"--- Joined {channel} ---\n")
-                        chat_input.set("")
-                    elif text == "/quit":
-                        client.disconnect()
-                        env.tui.exit_altscreen()
-                        env.tui.cursor_show()
-                        return
-
-                    # Handle normal chat
-                    elif channel:
-                        client.send(channel, text)
-                        chat_win.push(RED + f"\x1b[1m{nick}\x1b[22m: {text}" + CLR + "\n")
-                        chat_input.set("")
-                    else:
-                        chat_win.push("--- No channel joined ---\n")
-                        chat_input.set("")
-
-                elif char in ('\x08', '\x7f'):
-                    chat_input.backspace()
-                elif char == '\x1b':
-                    # TODO: does not exit cleanly
+                # Handle internal commands
+                elif text.startswith("/nick "):
+                    new_nick = text.split(" ", 1)[1]
+                    client.raw(f"NICK {new_nick}")
+                    nick = new_nick # Update local variable for UI formatting
+                    chat_win.push(f"--- Nick changed to {nick} ---\n")
+                    chat_input.set("")
+                elif text.startswith("/join "):
+                    target_channel = text.split(" ", 1)[1]
+                    client.join(target_channel)
+                    channel = target_channel # Update local channel for sending
+                    chat_win.push(f"--- Joined {channel} ---\n")
+                    chat_input.set("")
+                elif text == "/quit":
                     client.disconnect()
                     env.tui.exit_altscreen()
                     env.tui.cursor_show()
                     return
+
+                # Handle normal chat
+                elif channel:
+                    client.send(channel, text)
+                    chat_win.push(RED + f"\x1b[1m{nick}\x1b[22m: {text}" + CLR + "\n")
+                    chat_input.set("")
                 else:
-                    chat_input.push(char)
+                    chat_win.push("--- No channel joined ---\n")
+                    chat_input.set("")
+
+            elif char in ('\x08', '\x7f'):
+                chat_input.backspace()
+            elif char == '\x1b':
+                # TODO: does not exit cleanly
+                client.disconnect()
+                env.tui.exit_altscreen()
+                env.tui.cursor_show()
+                return
+            else:
+                chat_input.push(char)

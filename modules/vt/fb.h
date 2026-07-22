@@ -27,12 +27,19 @@ typedef struct _vt_VT_obj_t {
   mp_obj_module_t *icon_font;
 } vt_VT_obj_t;
 
-// Allocate a persistent line for the status bar
-static Glyph top_line_now[256];
-static Glyph top_line_last[256];
+// Persistent line for the status bar -- defined once in fb.c. Was
+// `static` right here in the header, which (since fb.c and vt_module.c
+// both include it) meant each translation unit silently got its own
+// disconnected copy: vt_module.c's top_bar_invalidate()/
+// bottom_bar_invalidate() were clearing a phantom array draw_bar_ansi()'s
+// dirty-check (fb.c) never actually read, so invalidate() has been a
+// no-op. A single real definition, shared via extern, is also what lets
+// vt_module.c's render_row() binding read the bars' actual Glyphs.
+extern Glyph top_line_now[256];
+extern Glyph top_line_last[256];
 
-static Glyph bot_line_now[256];  // Buffer for bottom bar
-static Glyph bot_line_last[256]; // Back-buffer for bottom bar
+extern Glyph bot_line_now[256];  // Buffer for bottom bar
+extern Glyph bot_line_last[256]; // Back-buffer for bottom bar
 
 extern vt_VT_obj_t *current_vt_obj;
 
@@ -70,5 +77,29 @@ extern unsigned int defaultcs;
 void draw_bar_ansi(const char *text, size_t len, int bar_type);
 void repaint_bars(void);
 void fill_bottom_margin(void);
+
+// Result of render_row_rgb565() -- see fb.c. x_start/y_start/x_end/
+// f_height are the same coordinates xdrawline() would pass to
+// set_window() for this row; window_width/pixel_count describe what
+// actually landed in the caller's buffer. pixel_count == 0 means the row
+// was off-screen or the buffer was missing/too small -- none of the
+// other fields are meaningful in that case.
+typedef struct {
+  uint16_t x_start;
+  uint16_t y_start;
+  uint16_t x_end;
+  uint16_t window_width;
+  uint8_t f_height;
+  size_t pixel_count;
+} row_render_t;
+
+// Renders Glyphs -> RGB565 pixels for one text row (or bar, via the same
+// _y1 == -1/-2 convention as xdrawline()/draw_bar_ansi()) into a caller-
+// supplied buffer, with no SPI/display side effects at all. out_cap is in
+// uint16_t pixels, not bytes. See fb.c for the full explanation -- this is
+// what lets something other than the physical display (e.g. a VNC server)
+// pull the same pixels a redraw would produce.
+row_render_t render_row_rgb565(Line ln, int _x1, int _y1, int _x2,
+                               uint16_t *out_buf, size_t out_cap);
 
 #endif /* FB_H */

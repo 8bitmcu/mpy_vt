@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>webvncd client</title>
+<style>
+  body { background: #111; color: #ccc; font-family: monospace; text-align: center; }
+  #bar { margin: 10px; }
+  input { font-family: monospace; padding: 4px; width: 220px; }
+  button { font-family: monospace; padding: 4px 12px; }
+  #status { margin-left: 10px; }
+  canvas { image-rendering: pixelated; border: 1px solid #444; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <input id="url" value="ws://192.168.1.100:8080" spellcheck="false">
+  <button id="connect">Connect</button>
+  <span id="status">disconnected</span>
+</div>
+<canvas id="screen" width="320" height="240" tabindex="0"></canvas>
+
+<script>
+// Minimal client for webvncd.py's custom protocol -- see the wire-format
+// comment at the top of that file. Not RFB/VNC; this and the server are
+// the only two things that need to agree on the byte layout.
+const MSG_INIT = 0x00, MSG_ROW = 0x01, MSG_KEY = 0x02;
+
+const canvas = document.getElementById('screen');
+const ctx = canvas.getContext('2d');
+const urlInput = document.getElementById('url');
+const statusEl = document.getElementById('status');
+const connectBtn = document.getElementById('connect');
+
+let ws = null;
+let screenWidth = 320;
+
+// X11-ish key names -> escape sequences, matching vncd.py's own mapping
+// so both remote-display paths behave the same way from the terminal's
+// point of view. Anything not listed here that's a single printable
+// character is sent as-is; everything else is ignored.
+const KEY_MAP = {
+  Backspace: "\x08",
+  Tab: "\t",
+  Enter: "\r",
+  Escape: "\x1b",
+  ArrowLeft: "\x1b[D",
+  ArrowUp: "\x1b[A",
+  ArrowRight: "\x1b[C",
+  ArrowDown: "\x1b[B",
+};
+
+function setStatus(text) {
+  statusEl.textContent = text;
+}
+
+function rowToImageData(bytes, width, height) {
+  const img = ctx.createImageData(width, height);
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const out = img.data;
+  for (let i = 0, p = 0, o = 0; i < width * height; i++, p += 2, o += 4) {
+    const v = dv.getUint16(p, false); // big-endian RGB565
+    const r5 = (v >> 11) & 0x1F, g6 = (v >> 5) & 0x3F, b5 = v & 0x1F;
+    out[o]     = (r5 << 3) | (r5 >> 2);
+    out[o + 1] = (g6 << 2) | (g6 >> 4);
+    out[o + 2] = (b5 << 3) | (b5 >> 2);
+    out[o + 3] = 255;
+  }
+  return img;
+}
+
+function handleMessage(buf) {
+  const bytes = new Uint8Array(buf);
+  const dv = new DataView(buf);
+  const type = bytes[0];
+
+  if (type === MSG_INIT) {
+    screenWidth = dv.getUint16(1, false);
+    const height = dv.getUint16(3, false);
+    canvas.width = screenWidth;
+    canvas.height = height;
+    setStatus(`connected (${screenWidth}x${height})`);
+    canvas.focus();
+
+  } else if (type === MSG_ROW) {
+    const y = dv.getUint16(1, false);
+    const pixelBytes = bytes.subarray(3);
+    const rowHeight = (pixelBytes.length / 2) / screenWidth;
+    const img = rowToImageData(pixelBytes, screenWidth, rowHeight);
+    ctx.putImageData(img, 0, y);
+  }
+}
+
+function sendKey(text) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || !text) return;
+  const body = new TextEncoder().encode(text);
+  const msg = new Uint8Array(1 + body.length);
+  msg[0] = MSG_KEY;
+  msg.set(body, 1);
+  ws.send(msg);
+}
+
+canvas.addEventListener('keydown', (ev) => {
+  let text = null;
+  if (ev.key in KEY_MAP) {
+    text = KEY_MAP[ev.key];
+  } else if (ev.key.length === 1) {
+    text = ev.key;
+  }
+  if (text !== null) {
+    ev.preventDefault();
+    sendKey(text);
+  }
+});
+
+function connect() {
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+  setStatus('connecting...');
+  ws = new WebSocket(urlInput.value);
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => setStatus('handshaking...');
+  ws.onmessage = (ev) => handleMessage(ev.data);
+  ws.onclose = () => setStatus('disconnected');
+  ws.onerror = () => setStatus('error');
+}
+
+connectBtn.addEventListener('click', connect);
+</script>
+
+</body>
+</html>

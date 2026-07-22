@@ -167,8 +167,15 @@ def scheduled_fast(_):
     env.term.draw()
 
 def fast_loop(_):
-    # Use schedule to keep the ISR (Interrupt Service Routine) light
-    micropython.schedule(scheduled_fast, 0)
+    # Use schedule to keep the ISR (Interrupt Service Routine) light.
+    # schedule() raises RuntimeError if its queue is already full (e.g.
+    # mp_task is blocked in some other call and hasn't drained the
+    # previous tick yet) -- letting that escape uncaught from a hard-IRQ
+    # timer callback is unsafe, so just drop this tick instead.
+    try:
+        micropython.schedule(scheduled_fast, 0)
+    except RuntimeError:
+        pass
 
 # The SLOW loop (1000ms)
 def scheduled_slow(_):
@@ -176,7 +183,10 @@ def scheduled_slow(_):
 
 def slow_loop(_):
     # Update the status bar string (ANSI parsing happens here)
-    micropython.schedule(scheduled_slow, 0)
+    try:
+        micropython.schedule(scheduled_slow, 0)
+    except RuntimeError:
+        pass
 
 # 30ms = ~33 FPS.
 draw_timer = machine.Timer(0)

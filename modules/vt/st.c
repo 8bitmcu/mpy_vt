@@ -95,8 +95,8 @@ unsigned int defaultbg = 0; /* Usually black */
 /* Globals */
 Term term;
 static Selection sel;
-static CSIEscape csiescseq;
-static STREscape strescseq;
+CSIEscape csiescseq;
+STREscape strescseq;
 static int iofd = 1;
 static int cmdfd;
 

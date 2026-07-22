@@ -24,6 +24,22 @@ typedef struct _tdeck_kbd_obj_t {
 
 const mp_obj_type_t tdeck_kbd_type;
 static int16_t cached_key = -1;
+// Rate-limits actual I2C transactions in raw_kbd_read() (the single,
+// shared entry point both kbd_read()'s direct blocking reads and
+// kbd_ioctl()'s poll handler go through). A select()-based caller
+// polling in a zero-timeout loop (e.g. irc.py) can hit this several
+// times per millisecond whenever there's any socket traffic to keep the
+// loop spinning; a plain blocking sys.stdin.read(1) can do the same via
+// MicroPython's internal EAGAIN-retry, e.g. the shell prompt or any
+// other app's input loop while idle. Repeated I2C reads at that rate
+// appear to wedge the keyboard controller's own I2C response logic
+// (reported: physical keys stopped registering after idling, recovered
+// as soon as the offending loop was interrupted). No caller, however
+// it's reading, should be able to do that -- cap the real hardware read
+// to once per interval and just report the cached "no key" state
+// in between.
+#define KBD_POLL_INTERVAL_MS 15
+static uint32_t last_poll_ms = 0;
 
 // --- I2C Driver Management (Now takes Pins) ---
 
@@ -43,7 +59,22 @@ static void init_i2c_hardware(int sda, int scl) {
   i2c_driver_install(I2C_MASTER_NUM, conf.mode, 0, 0, 0);
 }
 
+// Rate-limited at this single, shared entry point rather than in each
+// caller -- kbd_read() (any plain blocking sys.stdin.read(1), e.g. the
+// shell prompt or any app's input loop) and kbd_ioctl()'s poll handler
+// (select()-based callers, e.g. irc.py) both reach the keyboard only
+// through here, so both get the same protection against hammering the
+// I2C bus faster than the keyboard controller's response logic can
+// apparently tolerate (see KBD_POLL_INTERVAL_MS comment above). A
+// MicroPython blocking read retries internally on EAGAIN, so without
+// this a tight blocking read-loop would poll just as fast as a
+// zero-timeout select() loop did.
 static uint8_t raw_kbd_read() {
+  uint32_t now = mp_hal_ticks_ms();
+  if ((uint32_t)(now - last_poll_ms) < KBD_POLL_INTERVAL_MS)
+    return 0;
+  last_poll_ms = now;
+
   uint8_t rx_data = 0;
   esp_err_t err = i2c_master_read_from_device(I2C_MASTER_NUM, KBD_ADDR,
                                               &rx_data, 1, pdMS_TO_TICKS(10));
@@ -85,6 +116,7 @@ static mp_uint_t kbd_ioctl(mp_obj_t self_in, mp_uint_t request, uintptr_t arg,
 
     if (flags & MP_STREAM_POLL_RD) {
       if (cached_key == -1) {
+        // Rate limit lives in raw_kbd_read() itself now -- see its comment.
         uint8_t k = raw_kbd_read();
         if (k != 0)
           cached_key = k;

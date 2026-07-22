@@ -262,4 +262,15 @@ typedef struct {
 
 extern Term term;
 
+// Not static -- draw_bar_ansi() (fb.c) needs to save/restore these around
+// its temporary takeover of the shared parser state, same reason
+// utf8decode() above lost its static. Both are accumulation buffers for
+// an in-progress escape sequence (CSIEscape for CSI, STREscape for OSC/
+// DCS/etc.); processing the status bar's own text through tputc() while
+// the main terminal is mid-sequence -- e.g. mid-way through one of
+// vttui's own SGR color codes -- silently clobbers whatever had been
+// accumulated so far, since both paths share the same buffer.
+extern CSIEscape csiescseq;
+extern STREscape strescseq;
+
 #endif
