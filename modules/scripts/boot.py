@@ -83,6 +83,20 @@ try:
             "RetroCampus": "bbs.retrocampus.com"
     }, f)
 
+    with open("menu/.fc.json", "x") as f:
+        json.dump({
+            "Cozette 13px": "cozette_mpy_13",
+            "Gohu 11px": "gohu_mpy_11",
+            "Gohu 14px": "gohu_mpy_14",
+            "Scientifica 10px": "scientifica_mpy_10",
+            "Spleen 8px": "spleen_mpy_8",
+            "Spleen 12px": "spleen_mpy_12",
+            "Tazmen 11px": "tamzen_mpy_11",
+            "Terminus 12px": "terminus_mpy_12",
+            "Terminus 14px": "terminus_mpy_14",
+            "Unifont 16px": "unifont_mpy_16",
+    }, f)
+
 except:
     pass
 

@@ -38,13 +38,13 @@ def main(env, args):
     except (OSError, ValueError):
         pass
 
-    win = tui.make_window(
-            0, 0,
-            width=env.cols, height=env.rows,
-            title=app_name.upper() + " MENU",
-            fg=252, bg=18)
-
     while True:
+        win = tui.make_window(
+                0, 0,
+                width=env.cols, height=env.rows,
+                title=app_name.upper() + " MENU",
+                fg=252, bg=18)
+
         if ui_state == "MAIN_MENU":
             status = win.make_label("[w/s] nav | [n]ew | [d]elete | [q]uit",
                                     0, win.inner_h-1,

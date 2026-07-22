@@ -1,5 +1,5 @@
 #
-# MicroPython TUI Network Manager
+# MicroPython CLI/TUI Network Manager
 # Copyright (c) 2026 8bitmcu
 # License: MIT
 #
@@ -30,8 +30,45 @@ def scan_for_networks():
 
     return menu_data
 
-def main(env, *args):
-    """ Creates a TUI for connecting or creating a Wi-Fi network"""
+def main(env, args):
+    """ Creates a CLI/TUI for connecting or creating a Wi-Fi network"""
+    action = args[0] if len(args) > 0 else None
+    ssid = args[1] if len(args) > 1 else None
+    pwd = args[2] if len(args) > 2 else None
+
+    if args and (action != "connect" or len(args) < 2):
+        print("Usage: nm connect <ssid> [password]")
+        return
+
+    if args and action == "connect":
+        wlan = network.WLAN(network.STA_IF)
+        wlan.active(True)
+
+        if wlan.isconnected():
+            wlan.disconnect()
+            time.sleep(0.5)
+
+        if pwd:
+            wlan.connect(ssid, pwd)
+        else:
+            wlan.connect(ssid)
+
+        timeout = 0
+        print("Connecting", end="")
+        while not wlan.isconnected():
+            sys.stdout.write(".")
+            time.sleep(1)
+            timeout += 1
+            if timeout >= 15:
+                break
+
+        if wlan.isconnected():
+            print(f"\nConnected! IP: {wlan.ifconfig()[0]}")
+        else:
+            print("\nConnection failed (timed out).")
+
+        return
+
 
     tui = env.tui
     lst = None
