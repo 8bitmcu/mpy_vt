@@ -31,6 +31,13 @@ class StatusBar:
         self.style = b"\033[38;5;0m\033[48;5;252m"
         self.clear = b"\033[0m"
 
+        # Notification overlay state -- see notify().
+        self._notify_text = None
+        self._notify_until = 0
+        # White on a warm, desaturated red (#d75f5f) -- reads clearly as
+        # an alert without the eye-strain of a saturated red like 196.
+        self._notify_style = b"\033[38;5;255m\033[48;5;167m"
+
         # Initialize the layout and calculate offsets dynamically via the new method
         self.update_width(width)
 
@@ -115,7 +122,45 @@ class StatusBar:
         """Helper to overwrite a slice of the buffer"""
         self.buffer[offset : offset + len(data)] = data
 
+    def notify(self, text):
+        """Takes over the status bar with `text` (on a red background)
+        for 5 seconds, then reverts to the normal display. Renders
+        immediately -- refresh() only runs on the 1Hz status bar timer,
+        which would otherwise mean up to a 1s delay before a notification
+        actually appeared. The normal 1Hz tick then handles reverting
+        once the 5s window is up."""
+        if not text:
+            return
+        self._notify_text = text
+        self._notify_until = time.ticks_add(time.ticks_ms(), 5000)
+        self.refresh()
+
+    def _render_notification(self):
+        text = self._notify_text
+        if isinstance(text, str):
+            text = text.encode()
+
+        # Fixed-width row like the normal buffer -- draw_bar_ansi()
+        # expects exactly self.width columns. Assumes plain ASCII (no
+        # wide icon glyphs), so byte length == column count here.
+        if len(text) >= self.width:
+            text = text[:self.width]
+        else:
+            pad = self.width - len(text)
+            left_pad = pad // 2
+            text = b' ' * left_pad + text + b' ' * (pad - left_pad)
+
+        self.term.top_bar(self._notify_style + text + self.clear + b"\x00")
+
     def refresh(self):
+        if self._notify_text is not None:
+            if time.ticks_diff(self._notify_until, time.ticks_ms()) > 0:
+                self._render_notification()
+                return
+            self._notify_text = None
+            # Falls through to redraw the normal status bar immediately
+            # below, rather than waiting for the next 1Hz tick.
+
         # Gather raw data (Integer math only to avoid float allocations)
         total_sec = time.ticks_diff(time.ticks_ms(), self.start_ticks) // 1000
         mins = (total_sec // 60) % 100  # clamp to the 2-digit field, wraps at 100m now (was 10m)

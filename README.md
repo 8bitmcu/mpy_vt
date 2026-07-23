@@ -29,7 +29,7 @@ This project is optimized for the **LilyGO T-Deck**, leveraging MicroPython to i
 | **Keyboard** | LILYGO Keyboard | ✅ Mapped I2C Interface |
 | **Trackball** | LILYGO Trackball | ✅ Mapped I2C Interface |
 | **Speaker** | I2S | ✅ MP3/WAV Playback Support |
-| **Microphone** | I2S, ES7210 ADC | ✅ WAV Recorder Support |
+| **Microphone** | I2S, ES7210 ADC | ❌ Noise issues |
 | **SD Card** | SPI | ❌ Experimental |
 | **Touchscreen** | GT911 | N/A |
 

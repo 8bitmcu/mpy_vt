@@ -92,12 +92,14 @@ class FTPConnection:
             await self.data_server.wait_closed()
             self.data_server = None
 
-    def resolve_path(self, path):
+    def resolve_path(self, path, base=None):
         if path.startswith("/"):
             return path
-        if self.cwd == "/":
+        if base is None:
+            base = self.cwd
+        if base == "/":
             return "/" + path
-        return self.cwd + "/" + path
+        return base + "/" + path
 
     async def run(self):
         await self.send_resp(220, "FTP Server Ready.")
@@ -232,11 +234,16 @@ class FTPConnection:
                     await self.send_resp(502, "502 Active mode not supported, use PASV.")
 
                 elif cmd == "LIST":
+                    # LIST optionally takes a pathname argument (RFC 959)
+                    # -- some clients browse by sending it directly
+                    # instead of CWD-ing first, so this must respect it
+                    # rather than always listing self.cwd.
+                    target = self.resolve_path(payload) if payload else self.cwd
                     await self.send_resp(150, "Opening ASCII mode data connection for file list.")
                     if await self.wait_for_data_client():
                         try:
-                            for item in os.listdir(self.cwd):
-                                stat = os.stat(self.resolve_path(item))
+                            for item in os.listdir(target):
+                                stat = os.stat(self.resolve_path(item, base=target))
                                 is_dir = (stat[0] & 0x4000) != 0
                                 size = stat[6]
                                 # Minimal Unix-like listing

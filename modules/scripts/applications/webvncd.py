@@ -132,7 +132,7 @@ class _Conn:
             self.sock.close()
         except OSError:
             pass
-        print(f"{self.addr}: webvncd disconnected")
+        self.env.sts.notify(f"webvncd: {self.addr} disconnected")
 
 def _handle_http_headers(conn, header_bytes):
     key = None
@@ -285,13 +285,16 @@ class _Server:
                         callback=self._tick_isr)
 
     def _tick_isr(self, t):
-        micropython.schedule(self._tick, 0)
+        try:
+            micropython.schedule(self._tick, 0)
+        except RuntimeError:
+            pass
 
     def _tick(self, _):
         try:
             self._do_tick()
-        except Exception as e:
-            print("webvncd:", e)
+        except Exception:
+            pass
 
     def _do_tick(self):
         conn = self.conn
@@ -318,7 +321,7 @@ class _Server:
                     # _drain_tx()'s EAGAIN handling below.
                     csock.setblocking(False)
                     self.conn = conn = _Conn(csock, addr[0], self.env)
-                    print(f"{addr[0]}: webvncd connected")
+                    self.env.sts.notify(f"webvncd: {addr[0]} connected")
                 else:
                     csock.close()  # already have a client -- reject
             except OSError:

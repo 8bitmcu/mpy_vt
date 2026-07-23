@@ -187,7 +187,7 @@ class _Conn:
             self.sock.close()
         except OSError:
             pass
-        print(f"{self.addr}: VNC disconnected")
+        self.env.sts.notify(f"vncd: {self.addr} disconnected")
 
 def _advance(conn, chunk):
     st = conn.state
@@ -317,13 +317,16 @@ class _Server:
                         callback=self._tick_isr)
 
     def _tick_isr(self, t):
-        micropython.schedule(self._tick, 0)
+        try:
+            micropython.schedule(self._tick, 0)
+        except RuntimeError:
+            pass
 
     def _tick(self, _):
         try:
             self._do_tick()
-        except Exception as e:
-            print("vncd:", e)
+        except Exception:
+            pass
 
     def _do_tick(self):
         conn = self.conn
@@ -346,7 +349,7 @@ class _Server:
                 csock, addr = self.listen_sock.accept()
                 if conn is None or conn.closed:
                     self.conn = conn = _Conn(csock, addr[0], self.env)
-                    print(f"{addr[0]}: VNC connected")
+                    self.env.sts.notify(f"vncd: {addr[0]} connected")
                 else:
                     csock.close()  # already have a client -- reject
             except OSError:
