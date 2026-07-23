@@ -25,3 +25,6 @@ dependencies:
   chmorgan/esp-libhelix-mp3: "^1.0.3"
   espressif/es7210: "^1.0.1"
   jgromes/radiolib: "^7.7.1"
+
+  wolfssl/wolfssl: "5.8.2"
+  wolfssl/wolfssh: "1.4.20"

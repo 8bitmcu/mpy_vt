@@ -97,6 +97,16 @@ jobs:
           cp $GITHUB_WORKSPACE/vtOS/modules/idf_component.yml micropython/ports/esp32/main/idf_component.yml
 
           cd micropython/ports/esp32
+
+          # Works around an ESP-IDF v5.5.1 packaging bug: this target's
+          # esp_hw_support/mspi_timing_tuning build unconditionally
+          # references an esp32s3 include/ dir this IDF version doesn't
+          # actually ship, which fails the build without this. See the
+          # Makefile's build target for the same workaround (confirmed
+          # still required even on a full clean rebuild) -- this step
+          # has no local Docker equivalent, so needs it explicitly here.
+          mkdir -p $HOME/esp/esp-idf/components/esp_hw_support/mspi_timing_tuning/port/esp32s3/include
+
           . $HOME/esp/esp-idf/export.sh
           export MPY_USER_MODULES_DIR="$GITHUB_WORKSPACE/vtOS/modules"
 

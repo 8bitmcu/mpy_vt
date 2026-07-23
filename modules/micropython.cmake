@@ -33,3 +33,6 @@ include(${CMAKE_CURRENT_LIST_DIR}/tdeck_lora/micropython.cmake)
 
 # include the codec2 module (low-bitrate speech codec)
 include(${CMAKE_CURRENT_LIST_DIR}/codec2/micropython.cmake)
+
+# include the modssh module (wolfSSH-backed)
+include(${CMAKE_CURRENT_LIST_DIR}/modssh/micropython.cmake)
