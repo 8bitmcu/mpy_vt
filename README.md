@@ -1,4 +1,4 @@
-# vtOS: A hobby firmware with a terminal UI
+# vtOs: A terminal-based hobby firmware
 
 This project features first-class support for the [LILYGO T-Deck](https://s.click.aliexpress.com/e/_c4agv9Wd), transforming it into a standalone portable terminal.
 
@@ -91,7 +91,9 @@ You can execute the following commands from the built-in shell:
 | `nm` | Starts the TUI Network Manager |
 | `play` | Audio player that supports WAV and MP3 |
 | `rec` | Audio recorder |
-| `rss` | RSS Reader; connect to an http or https rss endpoint and retreives the titles |
+| `rss` | RSS Reader; connect to a RSS url to retreive the articles |
+| `ssh` | SSH Client; connect to a remote ssh server |
+| `sshd` | SSH Server; runs in the background |
 | `telnet` | Connects to a telnet server |
 | `vi` | Opens the vi port |
 | `vncd` | Launches a VNC Server. Known compatible with TigerVNC. Terribly slow |

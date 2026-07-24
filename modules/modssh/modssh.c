@@ -3,24 +3,18 @@
  * Copyright (c) 2026 8bitmcu
  * License: MIT
  *
- * First real pass, not yet battle-tested. Password and keyboard-interactive
- * auth only, no host key verification yet (matches PocketSSH's own
- * documented limitation: "accepts any server"), client mode only.
+ * Password and keyboard-interactive auth only, no host key verification,
+ * client mode only.
  *
- * Architecture: wolfSSH's handshake and steady-state read/write all
- * happen on a dedicated FreeRTOS task pinned to core 1 (APP CPU), same
- * pattern as tdeck_i2s/audioplayer.c's decode task -- leaves mp_task
- * (core 0) completely free. wolfSSL's own examples warn that its crypto
- * operations are heavy enough to trip a watchdog if run on a task that's
- * also expected to do other things promptly (WOLFSSL_ESP_NO_WATCHDOG in
- * wolfSSL's user_settings.h documents the same concern independently).
+ * wolfSSH's handshake and steady-state read/write run on a dedicated
+ * FreeRTOS task pinned to core 1, same pattern as
+ * tdeck_i2s/audioplayer.c's decode task -- keeps mp_task free and avoids
+ * tripping the watchdog with wolfCrypt's heavier operations.
  *
- * Data crosses the core boundary through two ring_buf_t instances (the
- * same mutex-protected single-producer/single-consumer buffer already
- * shared by audioplayer.c/audiorecorder.c) -- the SSH task never touches
- * MicroPython's own heap/GC directly, only raw bytes through the ring
- * buffers. Keep that boundary absolute; sharing MicroPython objects
- * directly across it is a reliable source of hard-to-diagnose bugs.
+ * Data crosses the core boundary through two ring_buf_t instances (same
+ * primitive as audioplayer.c/audiorecorder.c). The task never touches
+ * MicroPython's heap/GC directly -- only raw bytes through the ring
+ * buffers.
  */
 
 #include "py/obj.h"
@@ -46,29 +40,29 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
+#include <fcntl.h>
+#include <errno.h>
 
-// FreeRTOS task stack is in WORDS here, not bytes (see
-// tdeck_i2s/audioplayer.c's AUDIO_TASK_STACK_WORDS) -- 16384 words is
-// ~64KB, comfortable headroom for wolfSSH/wolfCrypt's ECC/Ed25519 work
-// plus keyboard-interactive auth (WOLFSSH_USERAUTH_KEYBOARD, below),
-// which does somewhat more per auth round than plain password.
+// Stack is in WORDS here, not bytes -- 16384 words is ~64KB, headroom for
+// wolfCrypt's ECC work plus keyboard-interactive auth.
 #define SSH_TASK_STACK_WORDS 16384
 #define SSH_TASK_PRIORITY 5
 
-// Matches the DEFAULT_WINDOW_SZ (2000 bytes) wolfSSL's own
-// user_settings.h sets once CONFIG_ESP_ENABLE_WOLFSSH is on -- no point
-// buffering much more than the SSH window itself allows in flight.
+// Matches wolfSSL's DEFAULT_WINDOW_SZ (2000 bytes) -- no point buffering
+// more than the SSH window allows in flight.
 #define SSH_RB_SIZE 4096
 
-// How long the steady-state loop's own select() (see ssh_task() below)
-// waits for the socket to become readable before giving up for this
-// iteration and draining the tx ring buffer instead. NOT a socket-level
-// SO_RCVTIMEO -- that approach reliably broke wolfSSH_stream_read()
-// (see ssh_task()'s comment on the steady-state loop for what that
-// looked like and how it was diagnosed), regardless of the value used.
-// This is plain select() on our own fd, entirely outside wolfSSH's
-// control, so it's safe to keep short/responsive.
+// select() timeout for the steady-state loop -- NOT a socket-level
+// SO_RCVTIMEO. That makes wolfSSH's own recv() return EAGAIN, which
+// wolfSSH_stream_read() mishandles (returns WS_ERROR instead of
+// WS_WANT_READ, killing the session). This is a plain select() on our
+// own fd outside wolfSSH's control, so it's safe to keep short.
 #define SSH_RECV_TIMEOUT_MS 100
+
+// Bounds for the pre-connected phase (see ssh_wait_fd()).
+#define SSH_CONNECT_POLL_MS 200
+#define SSH_CONNECT_TIMEOUT_MS 10000
+#define SSH_HANDSHAKE_TIMEOUT_MS 10000
 
 typedef enum {
   SSH_STATE_IDLE = 0,
@@ -88,10 +82,8 @@ typedef struct _ssh_client_obj_t {
   ring_buf_t rx; // SSH task (producer) -> MicroPython (consumer)
   ring_buf_t tx; // MicroPython (producer) -> SSH task (consumer)
 
-  // Copied into the object (rather than referencing the Python str
-  // objects directly) so they stay valid for the task's whole lifetime,
-  // independent of MicroPython's own GC -- the task must never touch a
-  // Python object directly.
+  // Copied rather than referencing the Python str objects -- must stay
+  // valid independent of MicroPython's GC.
   char host[64];
   int port;
   char username[32];
@@ -101,62 +93,43 @@ typedef struct _ssh_client_obj_t {
   WOLFSSH_CTX *ctx;
   WOLFSSH *ssh;
 
-  // Diagnostic only -- set on the SSH task before it fails, read from
-  // Python via error_code() after status() reports FAILED. Negative
-  // sentinels (SSH_ERR_*) below cover failures before a WOLFSSH* exists
-  // to ask wolfSSH_get_error() about; once one exists, this holds the
-  // real WS_* code from wolfssh/error.h.
+  // Diagnostic only, read from Python once status() reports FAILED.
+  // SSH_ERR_* below cover failures before a WOLFSSH* exists; otherwise
+  // this holds the real WS_* code from wolfssh/error.h.
   int last_error;
 
-  // Diagnostic only -- incremented/set from ssh_user_auth() each time
-  // wolfSSH's client engine asks for credentials. Plain struct writes,
-  // no console I/O, so safe to set here and read from Python once
-  // status() reports FAILED.
+  // Diagnostic only, set from ssh_user_auth().
   int auth_attempts;
   int last_auth_type;
 
-  // Scratch space for answering WOLFSSH_USERAUTH_KEYBOARD prompts (see
-  // ssh_user_auth() below) -- sized to WOLFSSH_MAX_PROMPTS, wolfSSH's
-  // own hard cap on how many prompts a single keyboard-interactive
-  // round can carry (enforced in DoUserAuthInfoRequest() before our
-  // callback ever sees it). Per-instance rather than static/shared so
-  // two concurrent Client sessions can't clobber each other's data.
+  // Scratch space for WOLFSSH_USERAUTH_KEYBOARD prompts -- sized to
+  // WOLFSSH_MAX_PROMPTS (wolfSSH's own hard cap, enforced before our
+  // callback runs). Per-instance so concurrent Clients don't clobber
+  // each other.
   byte *kb_responses[WOLFSSH_MAX_PROMPTS];
   word32 kb_response_lengths[WOLFSSH_MAX_PROMPTS];
 } ssh_client_obj_t;
 
-// Sentinels for failures that happen before wolfSSH_new() gives us a
-// WOLFSSH* to call wolfSSH_get_error() on. wolfssh/error.h's own WS_*
-// codes run continuously from -1 to at least -1097 as of the wolfSSH
-// version this project pins -- these must stay well clear of that
-// entire span (not just its current end) so a future wolfSSH release
-// adding more codes can't silently collide with one of these.
+// wolfssh/error.h's WS_* codes run continuously from -1 to at least
+// -1097 -- these sentinels stay well clear of that whole span.
 #define SSH_ERR_DNS -2000
 #define SSH_ERR_SOCKET -2001
 #define SSH_ERR_CONNECT -2002
 #define SSH_ERR_CTX_NEW -2003
 #define SSH_ERR_SSH_NEW -2004
+#define SSH_ERR_CONNECT_TIMEOUT -2005
+#define SSH_ERR_HANDSHAKE_TIMEOUT -2006
+#define SSH_ERR_ABORTED -2007
 
 const mp_obj_type_t ssh_client_type;
 
-// wolfSSH_SetUserAuth callback. ctx is the owning ssh_client_obj_t
-// itself (see wolfSSH_SetUserAuthCtx() below), not just self->password,
-// so this can also record auth_attempts/last_auth_type and reach the
-// kb_responses scratch space for Python to read back after a failure.
-//
-// Handles both WOLFSSH_USERAUTH_PASSWORD and WOLFSSH_USERAUTH_KEYBOARD.
-// The keyboard-interactive case is required, not optional, even though
-// this project only ever sends a plain password: per
-// wolfssh/src/internal.c's SendUserAuthRequest(), once a server's
-// USERAUTH_FAILURE response offers "keyboard-interactive" alongside
-// "password" (which is what PAM-backed OpenSSH servers commonly do even
-// with plain password auth enabled), wolfSSH's client unconditionally
-// prefers keyboard-interactive with no fallback back to password -- so
-// a password-only callback here means every auth round goes through
-// keyboard-interactive and this callback never even gets asked for
-// PASSWORD. Answering every prompt with the stored password covers the
-// overwhelmingly common real-world case (server presents a single
-// "Password:" prompt via keyboard-interactive).
+// wolfSSH_SetUserAuth callback. Handles both WOLFSSH_USERAUTH_PASSWORD
+// and WOLFSSH_USERAUTH_KEYBOARD: once a server offers keyboard-
+// interactive alongside password (common with PAM-backed OpenSSH),
+// wolfSSH's client unconditionally prefers it with no fallback, so a
+// password-only callback would never get asked for PASSWORD. Answering
+// every keyboard prompt with the stored password covers the common case
+// (a single "Password:" prompt).
 static int ssh_user_auth(byte authType, WS_UserAuthData *authData, void *ctx) {
   ssh_client_obj_t *self = (ssh_client_obj_t *)ctx;
   self->auth_attempts++;
@@ -169,10 +142,8 @@ static int ssh_user_auth(byte authType, WS_UserAuthData *authData, void *ctx) {
   }
 
   if (authType == WOLFSSH_USERAUTH_KEYBOARD) {
-    // DoUserAuthInfoRequest() (internal.c) already rejects any server
-    // that sends more than WOLFSSH_MAX_PROMPTS prompts before this
-    // callback ever runs, so promptCount is always within
-    // kb_responses'/kb_response_lengths' bounds here.
+    // DoUserAuthInfoRequest() already rejects more than
+    // WOLFSSH_MAX_PROMPTS prompts before this callback runs.
     word32 count = authData->sf.keyboard.promptCount;
     word32 passwordSz = (word32)strlen(self->password);
     for (word32 i = 0; i < count; i++) {
@@ -188,6 +159,43 @@ static int ssh_user_auth(byte authType, WS_UserAuthData *authData, void *ctx) {
   return WOLFSSH_USERAUTH_FAILURE;
 }
 
+// Waits up to timeout_ms for `fd` to become ready (writable if
+// for_write, readable otherwise), polling in short increments so
+// self->stop_request is noticed promptly instead of only after a long
+// select() returns. Used to bound and make interruptible the
+// pre-connected phase (connect() and waiting for the server's first
+// byte), which previously had no bound and ignored stop_request
+// entirely.
+//
+// Returns 1 if the fd became ready, 0 on timeout, -1 if stop_request
+// fired first.
+static int ssh_wait_fd(ssh_client_obj_t *self, int fd, bool for_write,
+                       int timeout_ms) {
+  int waited = 0;
+  while (waited < timeout_ms) {
+    if (self->stop_request) {
+      return -1;
+    }
+    int poll_ms = SSH_CONNECT_POLL_MS;
+    if (timeout_ms - waited < poll_ms) {
+      poll_ms = timeout_ms - waited;
+    }
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(fd, &fds);
+    struct timeval tv;
+    tv.tv_sec = poll_ms / 1000;
+    tv.tv_usec = (poll_ms % 1000) * 1000;
+    int sel = for_write ? select(fd + 1, NULL, &fds, NULL, &tv)
+                        : select(fd + 1, &fds, NULL, NULL, &tv);
+    if (sel > 0 && FD_ISSET(fd, &fds)) {
+      return 1;
+    }
+    waited += poll_ms;
+  }
+  return 0;
+}
+
 static void ssh_task(void *arg) {
   ssh_client_obj_t *self = (ssh_client_obj_t *)arg;
 
@@ -201,6 +209,11 @@ static void ssh_task(void *arg) {
   self->ctx = NULL;
   self->ssh = NULL;
 
+  if (self->stop_request) {
+    self->state = SSH_STATE_CLOSED;
+    goto done;
+  }
+
   struct addrinfo hints;
   memset(&hints, 0, sizeof(hints));
   hints.ai_family = AF_INET;
@@ -209,6 +222,8 @@ static void ssh_task(void *arg) {
   char port_str[6];
   snprintf(port_str, sizeof(port_str), "%d", self->port);
 
+  // getaddrinfo() is blocking with no portable way to bound/interrupt
+  // it -- known residual gap, unlike connect()/wolfSSH_connect() below.
   struct addrinfo *res = NULL;
   if (getaddrinfo(self->host, port_str, &hints, &res) != 0 || res == NULL) {
     self->last_error = SSH_ERR_DNS;
@@ -224,13 +239,46 @@ static void ssh_task(void *arg) {
     goto done;
   }
 
-  if (connect(self->sockfd, res->ai_addr, res->ai_addrlen) != 0) {
-    freeaddrinfo(res);
+  // Non-blocking connect(), bounded via ssh_wait_fd(); restored to
+  // blocking before wolfSSH touches the fd -- wolfSSH_connect() (like
+  // wolfSSH_accept(), see modsshd.c) treats WS_WANT_READ from a
+  // non-blocking recv() as fatal, so it needs a blocking socket
+  // throughout.
+  int sock_flags = fcntl(self->sockfd, F_GETFL, 0);
+  fcntl(self->sockfd, F_SETFL, sock_flags | O_NONBLOCK);
+
+  int connect_rc = connect(self->sockfd, res->ai_addr, res->ai_addrlen);
+  freeaddrinfo(res);
+
+  if (connect_rc != 0 && errno != EINPROGRESS) {
     self->last_error = SSH_ERR_CONNECT;
     self->state = SSH_STATE_FAILED;
     goto done;
   }
-  freeaddrinfo(res);
+
+  if (connect_rc != 0) {
+    int w = ssh_wait_fd(self, self->sockfd, true, SSH_CONNECT_TIMEOUT_MS);
+    if (w < 0) {
+      self->last_error = SSH_ERR_ABORTED;
+      self->state = SSH_STATE_CLOSED;
+      goto done;
+    }
+    if (w == 0) {
+      self->last_error = SSH_ERR_CONNECT_TIMEOUT;
+      self->state = SSH_STATE_FAILED;
+      goto done;
+    }
+    int so_err = 0;
+    socklen_t so_err_len = sizeof(so_err);
+    getsockopt(self->sockfd, SOL_SOCKET, SO_ERROR, &so_err, &so_err_len);
+    if (so_err != 0) {
+      self->last_error = SSH_ERR_CONNECT;
+      self->state = SSH_STATE_FAILED;
+      goto done;
+    }
+  }
+
+  fcntl(self->sockfd, F_SETFL, sock_flags); // restore blocking
 
   self->ctx = wolfSSH_CTX_new(WOLFSSH_ENDPOINT_CLIENT, NULL);
   if (self->ctx == NULL) {
@@ -252,17 +300,30 @@ static void ssh_task(void *arg) {
   wolfSSH_set_fd(self->ssh, self->sockfd);
   wolfSSH_SetUsername(self->ssh, self->username);
 
-  // Interactive shell/PTY, not a one-shot command -- matches this
-  // project's telnet.py-style "bridge a remote session into env.term"
-  // use case rather than exec-one-command-and-exit. Must happen BEFORE
-  // wolfSSH_connect(), not after -- wolfSSH_connect()'s own internal
-  // state machine (src/ssh.c) drives the entire channel-open +
-  // terminal-request + shell-request sequence itself, all before it
-  // returns, checking ssh->sendTerminalRequest (set by this call) partway
-  // through. Calling this after connect() returns is too late: that flag
-  // is still 0 when the state machine checks it, so it sends a bare
-  // "shell" request with no pty-req instead.
+  // Interactive shell/PTY. Must happen BEFORE wolfSSH_connect() --
+  // wolfSSH_connect()'s state machine checks ssh->sendTerminalRequest
+  // partway through, so setting this after connect() returns is too
+  // late (sends a bare "shell" request with no pty-req).
   wolfSSH_SetChannelType(self->ssh, WOLFSSH_SESSION_TERMINAL, NULL, 0);
+
+  // Bound how long we wait for the server's first byte -- wolfSSH_connect()
+  // treats any internal WS_WANT_READ as fatal with no retry, so this can
+  // only be a pre-call gate, never a non-blocking retry loop around the
+  // call itself (mirrors modsshd.c's identical gate before
+  // wolfSSH_accept()).
+  {
+    int w = ssh_wait_fd(self, self->sockfd, false, SSH_HANDSHAKE_TIMEOUT_MS);
+    if (w < 0) {
+      self->last_error = SSH_ERR_ABORTED;
+      self->state = SSH_STATE_CLOSED;
+      goto done;
+    }
+    if (w == 0) {
+      self->last_error = SSH_ERR_HANDSHAKE_TIMEOUT;
+      self->state = SSH_STATE_FAILED;
+      goto done;
+    }
+  }
 
   {
     int rc = wolfSSH_connect(self->ssh);
@@ -275,20 +336,9 @@ static void ssh_task(void *arg) {
 
   self->state = SSH_STATE_CONNECTED;
 
-  // Steady state: deliberately NOT using SO_RCVTIMEO here -- a
-  // socket-level receive timeout makes wolfSSH's OWN internal recv()
-  // call return EAGAIN/EWOULDBLOCK, and wolfSSH_stream_read() mishandles
-  // that specific case: it returns the generic WS_ERROR instead of
-  // WS_WANT_READ, killing the session outright, regardless of the
-  // timeout's length. Instead, the socket stays plain blocking with no
-  // timeout at all, and THIS loop uses its own select() to decide
-  // whether there's actually data worth reading before ever calling
-  // into wolfSSH -- so wolfSSH's
-  // internal recv() only ever runs when data is already sitting in the
-  // socket buffer (returns essentially immediately; the buggy timeout
-  // path never triggers), while still giving this loop a chance to
-  // drain the tx ring buffer on a short, predictable interval that's
-  // entirely outside wolfSSH's own control.
+  // Steady state: no SO_RCVTIMEO (see SSH_RECV_TIMEOUT_MS above) --
+  // select() gates whether we call into wolfSSH at all, so its own
+  // recv() only ever runs when data is already available.
   uint8_t iobuf[256];
   while (!self->stop_request) {
     fd_set rfds;
@@ -304,8 +354,7 @@ static void ssh_task(void *arg) {
       if (n > 0) {
         rb_write(&self->rx, iobuf, (size_t)n);
       } else if (n != WS_WANT_READ) {
-        // WS_EOF / WS_CHANNEL_CLOSED / WS_DISCONNECT / any other error --
-        // all mean this session is over.
+        // WS_EOF / WS_CHANNEL_CLOSED / WS_DISCONNECT / any other error.
         self->last_error = wolfSSH_get_error(self->ssh);
         break;
       }
@@ -413,20 +462,12 @@ static mp_obj_t ssh_client_status(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(ssh_client_status_obj, ssh_client_status);
 
-// Diagnostic accessor for the last_error field set by ssh_task() -- see
-// its declaration above for what the SSH_ERR_* sentinels vs. real WS_*
-// codes (from wolfssh/error.h) mean. Only meaningful once status() has
-// reported FAILED.
 static mp_obj_t ssh_client_error_code(mp_obj_t self_in) {
   ssh_client_obj_t *self = MP_OBJ_TO_PTR(self_in);
   return mp_obj_new_int(self->last_error);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(ssh_client_error_code_obj, ssh_client_error_code);
 
-// Diagnostic accessors for the auth_attempts/last_auth_type fields set
-// by ssh_user_auth() -- see its declaration above. authType is one of
-// wolfSSH's WOLFSSH_USERAUTH_* bitmask values (wolfssh/ssh.h); -1 means
-// the callback was never invoked (e.g. failed before auth started).
 static mp_obj_t ssh_client_auth_attempts(mp_obj_t self_in) {
   ssh_client_obj_t *self = MP_OBJ_TO_PTR(self_in);
   return mp_obj_new_int(self->auth_attempts);
@@ -446,9 +487,8 @@ static mp_obj_t ssh_client_disconnect(mp_obj_t self_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(ssh_client_disconnect_obj, ssh_client_disconnect);
 
-// --- Stream protocol: readinto() drains decrypted output, write() queues
-// keystrokes to send. Both just move bytes through the ring buffers --
-// the actual wolfSSH calls only ever happen on the dedicated task.
+// Stream protocol: readinto() drains decrypted output, write() queues
+// keystrokes -- both just move bytes through the ring buffers.
 
 static mp_uint_t ssh_client_read(mp_obj_t self_in, void *buf, mp_uint_t size,
                                  int *errcode) {

@@ -1,9 +1,13 @@
 # Create an INTERFACE library for our C module.
 add_library(usermod_modssh INTERFACE)
 
-# Add our source files to the lib
+# Add our source files to the lib. modsshd.c (the SSH server, registered
+# as its own "modsshd" module -- see that file's header comment) lives
+# here too rather than in a separate module so it picks up all the
+# wolfSSH vendor patches below automatically.
 target_sources(usermod_modssh INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}/modssh.c)
+    ${CMAKE_CURRENT_LIST_DIR}/modssh.c
+    ${CMAKE_CURRENT_LIST_DIR}/modsshd.c)
 
 # Add the current directory as an include directory, plus tdeck_i2s for
 # the shared ring_buf.h (same cross-task producer/consumer buffer already
@@ -91,6 +95,23 @@ execute_process(
         ${CMAKE_CURRENT_LIST_DIR}/patch_wolfssh_auth_priority.py
         ${wolfssh_dir}
 )
+
+# modsshd.c (the SSH server) calls wolfSSH_MakeEcdsaKey() to generate its
+# host key -- verified directly against src/keygen.c: both
+# wolfSSH_MakeRsaKey() and wolfSSH_MakeEcdsaKey() live inside one shared
+# `#ifdef WOLFSSH_KEYGEN` / `#ifdef WOLFSSL_KEY_GEN` block (lines 52-194),
+# so wolfSSH_MakeEcdsaKey's body doesn't compile at all -- not even a
+# stub -- unless both macros are defined, even though its own code path
+# only touches ECC. Neither is defined by this project's
+# user_settings.h (the one `#define WOLFSSL_KEY_GEN` in there is inside
+# `#if 0`, dead text). Both are needed on wolfssh_lib only -- keygen.c is
+# part of that component, not wolfssl_lib's. (wc_EccKeyToDer(), the
+# DER-export call wolfSSH_MakeEcdsaKey uses to serialize the generated
+# key, is separately gated by HAVE_ECC_KEY_EXPORT in wolfssl's own
+# asn.c -- confirmed already enabled by default whenever HAVE_ECC is set,
+# see settings.h -- so wolfssl_lib needs no define here.)
+target_compile_definitions(${wolfssh_lib} PRIVATE WOLFSSH_KEYGEN)
+target_compile_definitions(${wolfssh_lib} PRIVATE WOLFSSL_KEY_GEN)
 
 # wolfssl/wolfcrypt/settings.h (via port/Espressif/esp-sdk-lib.h) hard
 # #errors unless WOLFSSL_USER_SETTINGS is defined -- neither component's

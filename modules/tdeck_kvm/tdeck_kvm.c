@@ -26,8 +26,7 @@ typedef struct _tdeck_kvm_obj_t {
   mp_obj_base_t base;
   mp_obj_t vt_instance;
   mp_obj_t kbd_instance;
-  mp_obj_t tui_instance;
-  mp_obj_t shell_instance;
+  mp_obj_t mirror_instance;
 } tdeck_kvm_obj_t;
 
 // --- Injection Logic ---
@@ -53,6 +52,22 @@ static mp_obj_t kvm_inject(mp_obj_t self_in, mp_obj_t arg) {
   return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(kvm_inject_obj, kvm_inject);
+
+// Python Method: kvm.set_mirror(stream_or_None)
+//
+// Optional secondary output target -- every byte written via kvm_write()
+// (i.e. everything the shell/terminal displays) is also forwarded here
+// once attached. Built for sshd (modules/modssh/modsshd.c) to mirror the
+// physical display out to a remote SSH session sharing this device's
+// shell, without needing a second os.dupterm() slot (this port only has
+// one -- see mpconfigport.h's MICROPY_PY_OS_DUPTERM, already occupied by
+// this same KVM instance). Pass None to detach.
+static mp_obj_t kvm_set_mirror(mp_obj_t self_in, mp_obj_t arg) {
+  tdeck_kvm_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  self->mirror_instance = arg;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(kvm_set_mirror_obj, kvm_set_mirror);
 
 // --- Stream Protocol ---
 
@@ -84,6 +99,18 @@ static mp_uint_t kvm_read(mp_obj_t self_in, void *buf, mp_uint_t size,
 static mp_uint_t kvm_write(mp_obj_t self_in, const void *buf, mp_uint_t size,
                            int *errcode) {
   tdeck_kvm_obj_t *self = MP_OBJ_TO_PTR(self_in);
+
+  // Side effect only -- never affects this call's return value/errcode,
+  // so a momentarily-full or disconnecting mirror can never break the
+  // real display write below. See kvm_set_mirror()'s comment.
+  if (self->mirror_instance != mp_const_none) {
+    const mp_stream_p_t *m_stream = (const mp_stream_p_t *)MP_OBJ_TYPE_GET_SLOT(
+        mp_obj_get_type(self->mirror_instance), protocol);
+    if (m_stream && m_stream->write) {
+      int mirror_errcode;
+      m_stream->write(self->mirror_instance, buf, size, &mirror_errcode);
+    }
+  }
 
   const mp_stream_p_t *stream = (const mp_stream_p_t *)MP_OBJ_TYPE_GET_SLOT(
       mp_obj_get_type(self->vt_instance), protocol);
@@ -137,15 +164,13 @@ static mp_uint_t kvm_ioctl(mp_obj_t self_in, mp_uint_t request, uintptr_t arg,
 
 static mp_obj_t tdeck_kvm_make_new(const mp_obj_type_t *type, size_t n_args,
                                    size_t n_kw, const mp_obj_t *args) {
-  mp_arg_check_num(n_args, n_kw, 2, 3, false);
+  mp_arg_check_num(n_args, n_kw, 2, 2, false);
 
   tdeck_kvm_obj_t *self = m_new_obj(tdeck_kvm_obj_t);
   self->base.type = type;
   self->vt_instance = args[0];
   self->kbd_instance = args[1];
-  self->tui_instance = (n_args > 2) ? args[2] : mp_const_none;
-  self->shell_instance =
-      mp_const_none; // <-- Initialize to safe default Python None
+  self->mirror_instance = mp_const_none;
 
   return MP_OBJ_FROM_PTR(self);
 }
@@ -153,89 +178,13 @@ static mp_obj_t tdeck_kvm_make_new(const mp_obj_type_t *type, size_t n_args,
 // --- Registration ---
 static const mp_rom_map_elem_t kvm_locals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_inject), MP_ROM_PTR(&kvm_inject_obj)},
+    {MP_ROM_QSTR(MP_QSTR_set_mirror), MP_ROM_PTR(&kvm_set_mirror_obj)},
     {MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&mp_stream_read_obj)},
     {MP_ROM_QSTR(MP_QSTR_readinto), MP_ROM_PTR(&mp_stream_readinto_obj)},
     {MP_ROM_QSTR(MP_QSTR_write), MP_ROM_PTR(&mp_stream_write_obj)},
     {MP_ROM_QSTR(MP_QSTR_ioctl), MP_ROM_PTR(&mp_stream_ioctl_obj)},
 };
 static MP_DEFINE_CONST_DICT(kvm_locals_dict, kvm_locals_dict_table);
-
-static void kvm_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
-  tdeck_kvm_obj_t *self = MP_OBJ_TO_PTR(self_in);
-
-  // --- WRITE ATTRIBUTE HANDLER ---
-  if (dest[0] == MP_OBJ_SENTINEL) {
-    if (attr == MP_QSTR_tui) {
-      self->tui_instance = dest[1];
-      dest[0] = MP_OBJ_NULL; // Clear sentinel to flag assignment successful
-      return;
-    }
-    if (attr == qstr_from_str("shell")) {
-      self->shell_instance =
-          dest[1]; // <-- Capture and store the Python Shell instance
-      dest[0] = MP_OBJ_NULL;
-      return;
-    }
-    return;
-  }
-
-  if (dest[0] != MP_OBJ_NULL)
-    return;
-
-  // --- READ ATTRIBUTE HANDLERS ---
-  if (attr == MP_QSTR_tui) {
-    dest[0] = self->tui_instance;
-    return;
-  }
-  if (attr == qstr_from_str("shell")) {
-    dest[0] =
-        self->shell_instance; // <-- Return the stored Shell object to Python
-    return;
-  }
-
-  // --- Safe Terminal Geometry Fallbacks ---
-  if (attr == MP_QSTR_cols) {
-    mp_obj_t target_dest[2];
-    mp_load_method_maybe(self->vt_instance, MP_QSTR_cols, target_dest);
-    if (target_dest[0] != MP_OBJ_NULL) {
-      dest[0] = target_dest[0];
-      return;
-    }
-    mp_load_method_maybe(self->vt_instance, qstr_from_str("width"),
-                         target_dest);
-    if (target_dest[0] != MP_OBJ_NULL) {
-      dest[0] = target_dest[0];
-      return;
-    }
-    dest[0] = MP_OBJ_NEW_SMALL_INT(40);
-    return;
-  }
-
-  if (attr == MP_QSTR_rows) {
-    mp_obj_t target_dest[2];
-    mp_load_method_maybe(self->vt_instance, MP_QSTR_rows, target_dest);
-    if (target_dest[0] != MP_OBJ_NULL) {
-      dest[0] = target_dest[0];
-      return;
-    }
-    mp_load_method_maybe(self->vt_instance, qstr_from_str("height"),
-                         target_dest);
-    if (target_dest[0] != MP_OBJ_NULL) {
-      dest[0] = target_dest[0];
-      return;
-    }
-    dest[0] = MP_OBJ_NEW_SMALL_INT(16);
-    return;
-  }
-
-  // Look up standard methods/locals
-  mp_map_elem_t *elem = mp_map_lookup((mp_map_t *)&kvm_locals_dict.map,
-                                      MP_OBJ_NEW_QSTR(attr), MP_MAP_LOOKUP);
-  if (elem) {
-    dest[0] = elem->value;
-    dest[1] = self_in;
-  }
-}
 
 static const mp_stream_p_t kvm_stream_p = {
     .read = kvm_read,
@@ -246,8 +195,8 @@ static const mp_stream_p_t kvm_stream_p = {
 
 MP_DEFINE_CONST_OBJ_TYPE(tdeck_kvm_type, MP_QSTR_KVM,
                          MP_TYPE_FLAG_ITER_IS_STREAM, make_new,
-                         tdeck_kvm_make_new, protocol, &kvm_stream_p, attr,
-                         kvm_attr, locals_dict, &kvm_locals_dict);
+                         tdeck_kvm_make_new, protocol, &kvm_stream_p,
+                         locals_dict, &kvm_locals_dict);
 
 static const mp_rom_map_elem_t kvm_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_tdeck_kvm)},

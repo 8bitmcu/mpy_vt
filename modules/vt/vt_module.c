@@ -314,11 +314,11 @@ static MP_DEFINE_CONST_DICT(vt_VT_locals_dict, vtinal_locals_dict_table);
 static void vt_VT_attr(mp_obj_t self_in, qstr attr, mp_obj_t *dest) {
   if (dest[0] != MP_OBJ_NULL)
     return;
-  if (attr == MP_QSTR_cols || attr == qstr_from_str("width")) {
+  if (attr == MP_QSTR_cols) {
     dest[0] = MP_OBJ_NEW_SMALL_INT(term.col);
     return;
   }
-  if (attr == MP_QSTR_rows || attr == qstr_from_str("height")) {
+  if (attr == MP_QSTR_rows) {
     dest[0] = MP_OBJ_NEW_SMALL_INT(term.row);
     return;
   }

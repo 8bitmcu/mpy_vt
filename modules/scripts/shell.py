@@ -105,8 +105,8 @@ class Shell:
         self.alias_file = "/flash/.favs.json"
         self._load_aliases()
 
-
-        self.register("ssh",         _app("sshtest"))
+        self.register("sshd",        _app("applications.sshd"))
+        self.register("ssh",         _app("applications.ssh"))
         self.register("webvncd",     _app("applications.webvncd"))
         self.register("vncd",        _app("applications.vncd"))
         self.register("chess",       _app("applications.chess"))
