@@ -113,6 +113,7 @@ class Shell:
         self.register("c2",          _app("applications.c2"))
         self.register("ftp",         _app("applications.ftp"))
         self.register("ftpd",        _app("applications.ftpd"))
+        self.register("sftp",        _app("applications.sftp"))
         self.register("telnet",      _app("applications.telnet"))
         self.register("ms",          _app("applications.minesweeper"))
         self.register("loracfg",     _app("applications.loracfg"))

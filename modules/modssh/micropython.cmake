@@ -1,13 +1,15 @@
 # Create an INTERFACE library for our C module.
 add_library(usermod_modssh INTERFACE)
 
-# Add our source files to the lib. modsshd.c (the SSH server, registered
-# as its own "modsshd" module -- see that file's header comment) lives
-# here too rather than in a separate module so it picks up all the
-# wolfSSH vendor patches below automatically.
+# Add our source files to the lib. modsshd.c (the SSH server) and
+# modsftp.c (the SFTP client), each registered as their own module --
+# see their header comments -- live here too rather than in separate
+# modules so they pick up all the wolfSSH vendor patches below
+# automatically.
 target_sources(usermod_modssh INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/modssh.c
-    ${CMAKE_CURRENT_LIST_DIR}/modsshd.c)
+    ${CMAKE_CURRENT_LIST_DIR}/modsshd.c
+    ${CMAKE_CURRENT_LIST_DIR}/modsftp.c)
 
 # Add the current directory as an include directory, plus tdeck_i2s for
 # the shared ring_buf.h (same cross-task producer/consumer buffer already
@@ -112,6 +114,47 @@ execute_process(
 # see settings.h -- so wolfssl_lib needs no define here.)
 target_compile_definitions(${wolfssh_lib} PRIVATE WOLFSSH_KEYGEN)
 target_compile_definitions(${wolfssh_lib} PRIVATE WOLFSSL_KEY_GEN)
+
+# modsftp.c (the SFTP client) needs WOLFSSH_SFTP for src/wolfsftp.c to
+# compile at all -- and that file is much more than the high-level
+# wolfSSH_SFTP_Get()/_Put() modsftp.c deliberately never calls (see its
+# header comment): it also contains wolfSSH's SERVER-side SFTP receive
+# handlers (RecvOpen/RecvMKDIR/RecvRead/SFTP_GetAttributes/etc, live in
+# this build since NO_WOLFSSH_SERVER isn't defined -- modsshd.c needs
+# server support), which use a whole family of local-filesystem macros
+# (WFD/WDIR/WSTAT_T/WOPEN/WSTAT/WCHMOD/WRENAME/...). Confirmed directly
+# against wolfssh/port.h: these all live behind
+# `#if (WOLFSSH_SFTP || WOLFSSH_SCP || WOLFSSH_SSHD) &&
+#      !NO_WOLFSSH_SERVER && !NO_FILESYSTEM` (~line 585) and an outer
+# `#ifdef NO_FILESYSTEM` wrapping the separate WFOPEN/WFCLOSE/WFREAD/
+# WFWRITE/WFSTAT/WCHMOD/WMKDIR block (~line 104) -- both real, working
+# POSIX wrappers (fopen/open/stat/opendir/...) in the generic non-RTOS
+# branch, entirely unavailable to wolfsftp.c while NO_FILESYSTEM is
+# defined (which this project's user_settings.h does globally, for
+# wolfCrypt's own unrelated reasons). Hand-stubbing ~20 macros (some
+# needing real POSIX-compatible struct layouts, e.g. WSTAT_T) to dead-end
+# values would be far more fragile than just letting wolfSSH's own,
+# already-correct generic-POSIX definitions apply -- ESP-IDF's newlib
+# genuinely provides fopen/open/stat/opendir etc, so this compiles to
+# real (if never-actually-called-by-us) libc functions, all harmless
+# dead code from modsftp.c's perspective since it only ever drives the
+# low-level Open/SendReadPacket/SendWritePacket/Close/LS/etc primitives.
+#
+# Patches wolfssh/port.h AND src/port.c (declarations and definitions,
+# respectively -- see patch_wolfssh_sftp_filesystem.py for the full
+# rationale and exact guards involved) rather than stubbing at the
+# compiler-definition level: all three guards are scoped entirely to
+# wolfSSH's own SFTP/SCP/SSHD file-I/O macros, not wolfCrypt's separate,
+# broader NO_FILESYSTEM concerns elsewhere in wolfssl_lib, so this can't
+# affect anything modssh.c/modsshd.c already depend on. Plain text
+# substitution rather than sed -- see that script's header comment for
+# why. Idempotent same as the other patch scripts in this file.
+target_compile_definitions(${wolfssh_lib} PRIVATE WOLFSSH_SFTP)
+execute_process(
+    COMMAND python3
+        ${CMAKE_CURRENT_LIST_DIR}/patch_wolfssh_sftp_filesystem.py
+        ${wolfssh_dir}
+)
 
 # wolfssl/wolfcrypt/settings.h (via port/Espressif/esp-sdk-lib.h) hard
 # #errors unless WOLFSSL_USER_SETTINGS is defined -- neither component's

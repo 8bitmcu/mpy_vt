@@ -92,6 +92,7 @@ You can execute the following commands from the built-in shell:
 | `play` | Audio player that supports WAV and MP3 |
 | `rec` | Audio recorder |
 | `rss` | RSS Reader; connect to a RSS url to retreive the articles |
+| `sftp` | SFTP Client that mounts its content as a VFS |
 | `ssh` | SSH Client; connect to a remote ssh server |
 | `sshd` | SSH Server; runs in the background |
 | `telnet` | Connects to a telnet server |
